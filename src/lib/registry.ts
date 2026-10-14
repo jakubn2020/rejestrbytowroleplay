@@ -1,23 +1,35 @@
 export const PROFESSIONS = [
+  'Lekarz rezydent',
   'Lekarz',
-  'Lekarz dentysta',
-  'Pielęgniarka',
-  'Pielęgniarz',
-  'Ratownik medyczny',
+  'Lekarz specjalista',
+  'Ratownik medyczny (magister)',
+  'Ratownik medyczny (licencjat)',
+  'Pielęgniarz (magister)',
+  'Pielęgniarz (licencjat)',
 ] as const
 
 export type Profession = (typeof PROFESSIONS)[number]
 
-export const PARAMEDIC: Profession = 'Ratownik medyczny'
+/** Paramedics (any degree, including legacy "Ratownik medyczny" rows) have no specialization. */
+export function isParamedic(profession: string): boolean {
+  return profession.startsWith('Ratownik medyczny')
+}
 
-/** PWZ = last 7 digits of the PESEL; a leading 0 becomes 1. */
+/** Upper bound on PESEL length, only to keep input sane. */
+export const PESEL_MAX_LENGTH = 100
+
+/**
+ * PWZ = last 7 digits of the PESEL; a leading 0 becomes 1.
+ * A PESEL shorter than 7 digits is left-padded with zeros first.
+ */
 export function pwzFromPesel(pesel: string): string {
-  const tail = pesel.slice(-7)
+  const tail = pesel.slice(-7).padStart(7, '0')
   return tail.startsWith('0') ? `1${tail.slice(1)}` : tail
 }
 
+/** A PESEL is any non-empty string of digits (no fixed length). */
 export function isPesel(value: string) {
-  return /^\d{11}$/.test(value)
+  return value.length > 0 && value.length <= PESEL_MAX_LENGTH && /^\d+$/.test(value)
 }
 
 /** Public, PESEL-free view of a registry entry. */

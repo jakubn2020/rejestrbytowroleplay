@@ -40,9 +40,8 @@ function Home() {
         Wyszukiwarka rejestru
       </h1>
       <p className="mt-3 text-muted-foreground">
-        Sprawdź prawo wykonywania zawodu lekarza, pielęgniarki, pielęgniarza
-        lub ratownika medycznego. Wpisz numer PESEL, numer PWZ albo pełne imię
-        i nazwisko.
+        Sprawdź prawo wykonywania zawodu lekarza, pielęgniarza lub ratownika
+        medycznego. Wpisz numer PESEL, numer PWZ albo pełne imię i nazwisko.
       </p>
 
       <form

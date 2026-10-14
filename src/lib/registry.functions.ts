@@ -6,8 +6,9 @@ import { z } from 'zod'
 import { db } from '../../db'
 import { practitioners, type Practitioner } from '../../db/schema'
 import {
-  PARAMEDIC,
+  PESEL_MAX_LENGTH,
   PROFESSIONS,
+  isParamedic,
   pwzFromPesel,
   type PublicEntry,
 } from './registry'
@@ -19,7 +20,7 @@ function toPublic(row: Practitioner): PublicEntry {
     lastName: row.lastName,
     profession: row.profession,
     specialization:
-      row.profession === PARAMEDIC ? 'nd.' : row.specialization || 'brak',
+      isParamedic(row.profession) ? 'nd.' : row.specialization || 'brak',
   }
 }
 
@@ -35,24 +36,16 @@ export const searchRegistry = createServerFn({ method: 'GET' })
     const q = data.q.replace(/\s+/g, ' ')
 
     if (/^\d+$/.test(q)) {
-      if (q.length === 11) {
-        const rows = await db
-          .select()
-          .from(practitioners)
-          .where(eq(practitioners.pesel, q))
-        return { status: 'ok', mode: 'pesel', entries: rows.map(toPublic) }
-      }
-      if (q.length === 7) {
-        const rows = await db
-          .select()
-          .from(practitioners)
-          .where(eq(practitioners.pwz, q))
-        return { status: 'ok', mode: 'pwz', entries: rows.map(toPublic) }
-      }
+      // A digits-only query can be a PESEL (any length) or a 7-digit PWZ.
+      const rows = await db
+        .select()
+        .from(practitioners)
+        .where(or(eq(practitioners.pesel, q), eq(practitioners.pwz, q)))
+        .orderBy(asc(practitioners.lastName))
       return {
-        status: 'invalid',
-        message:
-          'Numer PESEL składa się z 11 cyfr, a numer PWZ z 7 cyfr.',
+        status: 'ok',
+        mode: q.length === 7 ? 'pwz' : 'pesel',
+        entries: rows.map(toPublic),
       }
     }
 
@@ -103,7 +96,12 @@ export const listPractitioners = createServerFn({ method: 'GET' })
 
 const practitionerInput = z
   .object({
-    pesel: z.string().trim().regex(/^\d{11}$/, 'PESEL musi mieć 11 cyfr'),
+    pesel: z
+      .string()
+      .trim()
+      .min(1, 'PESEL nie może być pusty')
+      .max(PESEL_MAX_LENGTH, `PESEL może mieć najwyżej ${PESEL_MAX_LENGTH} cyfr`)
+      .regex(/^\d+$/, 'PESEL może składać się tylko z cyfr'),
     firstName: z.string().trim().min(1).max(80),
     lastName: z.string().trim().min(1).max(80),
     profession: z.enum(PROFESSIONS),
@@ -112,7 +110,7 @@ const practitionerInput = z
   .transform((value) => ({
     ...value,
     specialization:
-      value.profession === PARAMEDIC ? null : value.specialization || null,
+      isParamedic(value.profession) ? null : value.specialization || null,
   }))
 
 export type AddResult = { ok: true; pwz: string } | { ok: false; error: string }

@@ -23,7 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { PARAMEDIC, PROFESSIONS, isPesel, pwzFromPesel } from '@/lib/registry'
+import {
+  PESEL_MAX_LENGTH,
+  PROFESSIONS,
+  isParamedic,
+  isPesel,
+  pwzFromPesel,
+} from '@/lib/registry'
 import {
   addPractitioner,
   deletePractitioner,
@@ -354,14 +360,14 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
   const [profession, setProfession] = useState<string>(PROFESSIONS[0])
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const isParamedic = profession === PARAMEDIC
+  const paramedic = isParamedic(profession)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
     const fields = new FormData(form)
     if (!isPesel(pesel)) {
-      setError('PESEL musi składać się z 11 cyfr.')
+      setError('PESEL musi składać się z samych cyfr (co najmniej jednej).')
       return
     }
     setPending(true)
@@ -373,7 +379,7 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
           firstName: String(fields.get('firstName')),
           lastName: String(fields.get('lastName')),
           profession: profession as (typeof PROFESSIONS)[number],
-          specialization: isParamedic
+          specialization: paramedic
             ? undefined
             : String(fields.get('specialization') ?? ''),
         },
@@ -414,7 +420,9 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
             name="pesel"
             inputMode="numeric"
             value={pesel}
-            onChange={(e) => setPesel(e.target.value.replace(/\D/g, '').slice(0, 11))}
+            onChange={(e) => setPesel(
+                e.target.value.replace(/\D/g, '').slice(0, PESEL_MAX_LENGTH),
+              )}
             required
           />
           <p className="text-xs text-muted-foreground">
@@ -442,7 +450,7 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
         </div>
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="specialization">Specjalizacja (opcjonalnie)</Label>
-          {isParamedic ? (
+          {paramedic ? (
             <Input id="specialization" value="nd." disabled />
           ) : (
             <Input

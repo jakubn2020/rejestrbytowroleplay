@@ -2,7 +2,9 @@
 
 Fikcyjny rejestr zawodów medycznych na potrzeby roleplayu. Każdy może wyszukać osobę po numerze PESEL, numerze PWZ albo pełnym imieniu i nazwisku. Wynik pokazuje wyłącznie imię i nazwisko, numer PWZ, zawód i specjalizację (dla ratowników medycznych zawsze „nd.”). PESEL nigdy nie jest pokazywany publicznie.
 
-Administrator loguje się na stronie `/admin` i dodaje lub usuwa osoby. Numer PWZ wyliczany jest automatycznie: ostatnie 7 cyfr PESEL-u, a jeśli zaczynają się od 0, pierwsza cyfra zamieniana jest na 1.
+Administrator loguje się na stronie `/admin` i dodaje lub usuwa osoby. Numer PWZ wyliczany jest automatycznie: ostatnie 7 cyfr PESEL-u (PESEL może mieć dowolną liczbę cyfr; krótszy niż 7 cyfr jest dopełniany zerami z lewej), a jeśli wynik zaczyna się od 0, pierwsza cyfra zamieniana jest na 1.
+
+Dostępne zawody: lekarz rezydent, lekarz, lekarz specjalista, ratownik medyczny (magister / licencjat), pielęgniarz (magister / licencjat).
 
 ## Technologie
 
