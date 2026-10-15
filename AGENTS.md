@@ -7,9 +7,9 @@ This document describes the project for developers and AI agents working on this
 A fictional (roleplay) Polish medical practitioners registry. UI copy is in Polish.
 
 - `/` (`src/routes/index.tsx`): public search by PESEL (any number of digits), PWZ (7 digits) or full name (first + last, either order, case-insensitive exact match). Results expose only name, PWZ, profession and specialization — never PESEL.
-- `/admin` (`src/routes/admin.tsx`): Netlify Identity login, invite/recovery password forms, add/delete entries. Identity email links land on `/` and are forwarded to `/admin` by `SiteHeader` in `src/components/site-chrome.tsx`.
+- `/admin` (`src/routes/admin.tsx`): Netlify Identity login, invite/recovery password forms, add/delete entries. Roles: `admin` (full access, sees PESEL) and `kierownictwo` (add only, one entry per 5 minutes per account, no delete, no PESEL). Identity email links land on `/` and are forwarded to `/admin` by `SiteHeader` in `src/components/site-chrome.tsx`.
 - `src/lib/registry.ts`: shared constants (professions) and `isParamedic`, `isPesel` and `pwzFromPesel` (last 7 PESEL digits, left-padded with zeros if shorter; leading 0 → 1).
-- `src/lib/registry.functions.ts`: server functions. Admin functions use `requireAdmin` middleware, which checks the `admin` role server-side via `getUser()` from `@netlify/identity`.
+- `src/lib/registry.functions.ts`: server functions. `requireStaff` accepts `admin` or `kierownictwo` (list, add, cooldown); `requireAdmin` accepts only `admin` (delete). Both check roles server-side via `getUser()` from `@netlify/identity`. The `kierownictwo` cooldown is derived from `practitioners.created_by` / `created_at` in `cooldownLeft`.
 - `db/schema.ts`: `practitioners` table (Drizzle, Netlify Database). Both `pesel` and `pwz` are unique. Migrations live in `netlify/database/migrations/`; generate with `npx drizzle-kit generate --name <name>`, never edit applied ones.
 - Paramedics (any `Ratownik medyczny (…)` profession) store `specialization = null` and are displayed as `nd.`.
 - The footer must contain only the fictional-site disclaimer sentence.

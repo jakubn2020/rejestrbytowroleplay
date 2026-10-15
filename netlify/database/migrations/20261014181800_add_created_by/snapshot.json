@@ -1,0 +1,166 @@
+{
+  "version": "8",
+  "dialect": "postgres",
+  "id": "4802d89d-ad24-4b82-a8aa-cb652afb214b",
+  "prevIds": [
+    "88320e9d-a800-42eb-aa86-a46a06d6f1a7"
+  ],
+  "ddl": [
+    {
+      "isRlsEnabled": false,
+      "name": "practitioners",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "type": "serial",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pesel",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pwz",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "first_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "profession",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "specialization",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "practitioners"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "practitioners_pkey",
+      "schema": "public",
+      "table": "practitioners",
+      "entityType": "pks"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "pesel"
+      ],
+      "nullsNotDistinct": false,
+      "name": "practitioners_pesel_key",
+      "schema": "public",
+      "table": "practitioners",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "pwz"
+      ],
+      "nullsNotDistinct": false,
+      "name": "practitioners_pwz_key",
+      "schema": "public",
+      "table": "practitioners",
+      "entityType": "uniques"
+    }
+  ],
+  "renames": []
+}

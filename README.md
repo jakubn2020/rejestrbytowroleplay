@@ -28,3 +28,10 @@ netlify dev
 ```
 
 Migracje bazy znajdują się w `netlify/database/migrations/` i są stosowane automatycznie przy wdrożeniu. Po zmianie `db/schema.ts` wygeneruj nową migrację: `npx drizzle-kit generate --name <nazwa>`.
+
+## Role
+
+- `admin` – dodaje i usuwa osoby bez ograniczeń, widzi PESEL.
+- `kierownictwo` – może dodać jedną osobę na 5 minut (limit liczony osobno dla każdego konta, po stronie serwera), nie może usuwać wpisów i nie widzi numerów PESEL.
+
+Role nadaje się w ustawieniach Netlify Identity (Users → użytkownik → Roles).

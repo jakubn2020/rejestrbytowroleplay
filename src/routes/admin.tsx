@@ -24,8 +24,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  MANAGEMENT_COOLDOWN_SECONDS,
   PESEL_MAX_LENGTH,
   PROFESSIONS,
+  ROLE_ADMIN,
+  ROLE_MANAGEMENT,
   isParamedic,
   isPesel,
   pwzFromPesel,
@@ -33,6 +36,7 @@ import {
 import {
   addPractitioner,
   deletePractitioner,
+  getCooldown,
   listPractitioners,
 } from '@/lib/registry.functions'
 
@@ -247,7 +251,9 @@ function PasswordForm({
 type Row = Awaited<ReturnType<typeof listPractitioners>>[number]
 
 function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
-  const isAdmin = user.roles?.includes('admin') ?? false
+  const isAdmin = user.roles?.includes(ROLE_ADMIN) ?? false
+  const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
+  const canAdd = isAdmin || isManagement
   const [rows, setRows] = useState<Row[] | null>(null)
 
   const refresh = useCallback(async () => {
@@ -260,8 +266,8 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   }, [])
 
   useEffect(() => {
-    if (isAdmin) void refresh()
-  }, [isAdmin, refresh])
+    if (canAdd) void refresh()
+  }, [canAdd, refresh])
 
   async function remove(row: Row) {
     if (!confirm(`Usunąć ${row.firstName} ${row.lastName} z rejestru?`)) return
@@ -285,17 +291,18 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
         </Button>
       </div>
 
-      {!isAdmin ? (
+      {!canAdd ? (
         <Panel>
           <p>
-            To konto nie ma uprawnień administratora. Nadaj mu rolę{' '}
-            <code className="rounded bg-muted px-1">admin</code> w ustawieniach
-            Netlify Identity, a następnie zaloguj się ponownie.
+            To konto nie ma uprawnień do panelu. Nadaj mu rolę{' '}
+            <code className="rounded bg-muted px-1">{ROLE_ADMIN}</code> lub{' '}
+            <code className="rounded bg-muted px-1">{ROLE_MANAGEMENT}</code> w
+            ustawieniach Netlify Identity, a następnie zaloguj się ponownie.
           </p>
         </Panel>
       ) : (
         <>
-          <AddForm onAdded={refresh} />
+          <AddForm onAdded={refresh} limited={!isAdmin} />
           <Panel>
             <h2 className="text-lg font-semibold">
               Osoby w rejestrze{rows ? ` (${rows.length})` : ''}
@@ -312,11 +319,11 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Imię i nazwisko</TableHead>
-                      <TableHead>PESEL</TableHead>
+                      {isAdmin && <TableHead>PESEL</TableHead>}
                       <TableHead>PWZ</TableHead>
                       <TableHead>Zawód</TableHead>
                       <TableHead>Specjalizacja</TableHead>
-                      <TableHead className="w-12" />
+                      {isAdmin && <TableHead className="w-12" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -325,20 +332,24 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                         <TableCell className="font-medium">
                           {row.firstName} {row.lastName}
                         </TableCell>
-                        <TableCell className="font-mono">{row.pesel}</TableCell>
+                        {isAdmin && (
+                          <TableCell className="font-mono">{row.pesel}</TableCell>
+                        )}
                         <TableCell className="font-mono">{row.pwz}</TableCell>
                         <TableCell>{row.profession}</TableCell>
                         <TableCell>{row.specialization}</TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Usuń ${row.firstName} ${row.lastName}`}
-                            onClick={() => remove(row)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </TableCell>
+                        {isAdmin && (
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Usuń ${row.firstName} ${row.lastName}`}
+                              onClick={() => remove(row)}
+                            >
+                              <Trash2 className="size-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -355,7 +366,46 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
 const selectClass =
   'h-9 w-full rounded-md border border-input bg-white px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
-function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
+function formatWait(seconds: number) {
+  const m = Math.floor(seconds / 60)
+  const sec = String(seconds % 60).padStart(2, '0')
+  return `${m}:${sec}`
+}
+
+function AddForm({
+  onAdded,
+  limited,
+}: {
+  onAdded: () => Promise<void>
+  /** Management accounts: one entry per MANAGEMENT_COOLDOWN_SECONDS. */
+  limited: boolean
+}) {
+  const [secondsLeft, setSecondsLeft] = useState(0)
+
+  useEffect(() => {
+    if (!limited) return
+    let active = true
+    getCooldown()
+      .then((r) => {
+        if (active) setSecondsLeft(r.secondsLeft)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [limited])
+
+  const waiting = secondsLeft > 0
+
+  useEffect(() => {
+    if (!waiting) return
+    const timer = setInterval(
+      () => setSecondsLeft((s) => (s > 0 ? s - 1 : 0)),
+      1000,
+    )
+    return () => clearInterval(timer)
+  }, [waiting])
+
   const [pesel, setPesel] = useState('')
   const [profession, setProfession] = useState<string>(PROFESSIONS[0])
   const [pending, setPending] = useState(false)
@@ -366,6 +416,7 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
     event.preventDefault()
     const form = event.currentTarget
     const fields = new FormData(form)
+    if (waiting) return
     if (!isPesel(pesel)) {
       setError('PESEL musi składać się z samych cyfr (co najmniej jednej).')
       return
@@ -386,8 +437,10 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
       })
       if (!result.ok) {
         setError(result.error)
+        if (result.secondsLeft) setSecondsLeft(result.secondsLeft)
         return
       }
+      if (limited) setSecondsLeft(MANAGEMENT_COOLDOWN_SECONDS)
       toast.success(`Dodano do rejestru. Numer PWZ: ${result.pwz}`)
       form.reset()
       setPesel('')
@@ -467,9 +520,19 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
           </p>
         )}
         <div className="sm:col-span-2">
-          <Button type="submit" disabled={pending}>
-            {pending ? 'Zapisywanie…' : 'Dodaj do rejestru'}
+          <Button type="submit" disabled={pending || waiting}>
+            {pending
+              ? 'Zapisywanie…'
+              : waiting
+                ? `Kolejną osobę możesz dodać za ${formatWait(secondsLeft)}`
+                : 'Dodaj do rejestru'}
           </Button>
+          {limited && !waiting && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Konto kierownictwa może dodać jedną osobę na 5 minut i nie może
+              usuwać wpisów.
+            </p>
+          )}
         </div>
       </form>
     </Panel>

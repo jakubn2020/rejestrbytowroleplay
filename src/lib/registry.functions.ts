@@ -6,8 +6,11 @@ import { z } from 'zod'
 import { db } from '../../db'
 import { practitioners, type Practitioner } from '../../db/schema'
 import {
+  MANAGEMENT_COOLDOWN_SECONDS,
   PESEL_MAX_LENGTH,
   PROFESSIONS,
+  ROLE_ADMIN,
+  ROLE_MANAGEMENT,
   isParamedic,
   pwzFromPesel,
   type PublicEntry,
@@ -70,26 +73,64 @@ export const searchRegistry = createServerFn({ method: 'GET' })
     return { status: 'ok', mode: 'name', entries: rows.map(toPublic) }
   })
 
+/** Lets `admin` and `kierownictwo` through; exposes who they are and whether they are admin. */
+const requireStaff = createMiddleware({ type: 'function' }).server(
+  async ({ next }) => {
+    const user = await getUser()
+    const roles = user?.roles ?? []
+    const isAdmin = roles.includes(ROLE_ADMIN)
+    if (!user || (!isAdmin && !roles.includes(ROLE_MANAGEMENT))) {
+      throw new Error('Brak uprawnień')
+    }
+    const identity = (user.email ?? user.id).toLowerCase()
+    return next({ context: { user, isAdmin, identity } })
+  },
+)
+
+/** Admin only (e.g. deleting entries). `kierownictwo` is deliberately not accepted. */
 const requireAdmin = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
     const user = await getUser()
-    if (!user?.roles?.includes('admin')) {
+    if (!user?.roles?.includes(ROLE_ADMIN)) {
       throw new Error('Brak uprawnień administratora')
     }
     return next({ context: { user } })
   },
 )
 
+/** Seconds a `kierownictwo` account still has to wait before adding another entry. */
+async function cooldownLeft(identity: string): Promise<number> {
+  // Computed in SQL so both timestamps use the database clock and time zone.
+  const [last] = await db
+    .select({
+      secondsAgo: sql<string>`extract(epoch from (now() - ${practitioners.createdAt}))`,
+    })
+    .from(practitioners)
+    .where(eq(practitioners.createdBy, identity))
+    .orderBy(desc(practitioners.createdAt))
+    .limit(1)
+  if (!last) return 0
+  const left = MANAGEMENT_COOLDOWN_SECONDS - Number(last.secondsAgo)
+  return left > 0 ? Math.ceil(left) : 0
+}
+
+export const getCooldown = createServerFn({ method: 'GET' })
+  .middleware([requireStaff])
+  .handler(async ({ context }) => ({
+    secondsLeft: context.isAdmin ? 0 : await cooldownLeft(context.identity),
+  }))
+
 export const listPractitioners = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
-  .handler(async () => {
+  .middleware([requireStaff])
+  .handler(async ({ context }) => {
     const rows = await db
       .select()
       .from(practitioners)
       .orderBy(desc(practitioners.createdAt))
     return rows.map((row) => ({
       id: row.id,
-      pesel: row.pesel,
+      // PESEL is only ever sent to admins.
+      pesel: context.isAdmin ? row.pesel : null,
       ...toPublic(row),
     }))
   })
@@ -113,12 +154,24 @@ const practitionerInput = z
       isParamedic(value.profession) ? null : value.specialization || null,
   }))
 
-export type AddResult = { ok: true; pwz: string } | { ok: false; error: string }
+export type AddResult =
+  | { ok: true; pwz: string }
+  | { ok: false; error: string; secondsLeft?: number }
 
 export const addPractitioner = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireStaff])
   .validator(practitionerInput)
-  .handler(async ({ data }): Promise<AddResult> => {
+  .handler(async ({ data, context }): Promise<AddResult> => {
+    if (!context.isAdmin) {
+      const secondsLeft = await cooldownLeft(context.identity)
+      if (secondsLeft > 0) {
+        return {
+          ok: false,
+          secondsLeft,
+          error: 'Kierownictwo może dodać jedną osobę na 5 minut. Spróbuj ponownie później.',
+        }
+      }
+    }
     const pwz = pwzFromPesel(data.pesel)
     const [clash] = await db
       .select({ pesel: practitioners.pesel, pwz: practitioners.pwz })
@@ -134,7 +187,9 @@ export const addPractitioner = createServerFn({ method: 'POST' })
             : `Numer PWZ ${pwz} jest już przypisany do innej osoby.`,
       }
     }
-    await db.insert(practitioners).values({ ...data, pwz })
+    await db
+      .insert(practitioners)
+      .values({ ...data, pwz, createdBy: context.identity })
     return { ok: true, pwz }
   })
 

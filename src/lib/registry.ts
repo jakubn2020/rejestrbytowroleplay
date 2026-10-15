@@ -10,6 +10,13 @@ export const PROFESSIONS = [
 
 export type Profession = (typeof PROFESSIONS)[number]
 
+/** Netlify Identity roles. `kierownictwo` may add entries (rate-limited) but never delete. */
+export const ROLE_ADMIN = 'admin'
+export const ROLE_MANAGEMENT = 'kierownictwo'
+
+/** How long a `kierownictwo` user must wait between two added entries. */
+export const MANAGEMENT_COOLDOWN_SECONDS = 5 * 60
+
 /** Paramedics (any degree, including legacy "Ratownik medyczny" rows) have no specialization. */
 export function isParamedic(profession: string): boolean {
   return profession.startsWith('Ratownik medyczny')
