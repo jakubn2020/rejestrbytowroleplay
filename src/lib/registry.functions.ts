@@ -1,6 +1,6 @@
 import { createMiddleware, createServerFn } from '@tanstack/react-start'
 import { getUser } from '@netlify/identity'
-import { asc, desc, eq, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../../db'
@@ -191,6 +191,61 @@ export const addPractitioner = createServerFn({ method: 'POST' })
       .insert(practitioners)
       .values({ ...data, pwz, createdBy: context.identity })
     return { ok: true, pwz }
+  })
+
+const updateInput = z.object({
+  id: z.number().int().positive(),
+  pesel: z
+    .string()
+    .trim()
+    .min(1, 'PESEL nie może być pusty')
+    .max(PESEL_MAX_LENGTH, `PESEL może mieć najwyżej ${PESEL_MAX_LENGTH} cyfr`)
+    .regex(/^\d+$/, 'PESEL może składać się tylko z cyfr'),
+  pwz: z
+    .string()
+    .trim()
+    .regex(/^\d{7}$/, 'Numer PWZ musi składać się z 7 cyfr'),
+})
+
+export type UpdateResult = { ok: true } | { ok: false; error: string }
+
+/** Admin only: change the PESEL and/or set the PWZ by hand for an existing entry. */
+export const updatePractitioner = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(updateInput)
+  .handler(async ({ data }): Promise<UpdateResult> => {
+    const [existing] = await db
+      .select({ id: practitioners.id })
+      .from(practitioners)
+      .where(eq(practitioners.id, data.id))
+      .limit(1)
+    if (!existing) {
+      return { ok: false, error: 'Nie znaleziono wpisu (mógł zostać usunięty).' }
+    }
+    const [clash] = await db
+      .select({ pesel: practitioners.pesel })
+      .from(practitioners)
+      .where(
+        and(
+          ne(practitioners.id, data.id),
+          or(eq(practitioners.pesel, data.pesel), eq(practitioners.pwz, data.pwz)),
+        ),
+      )
+      .limit(1)
+    if (clash) {
+      return {
+        ok: false,
+        error:
+          clash.pesel === data.pesel
+            ? 'Inna osoba ma już ten numer PESEL.'
+            : `Numer PWZ ${data.pwz} jest już przypisany do innej osoby.`,
+      }
+    }
+    await db
+      .update(practitioners)
+      .set({ pesel: data.pesel, pwz: data.pwz })
+      .where(eq(practitioners.id, data.id))
+    return { ok: true }
   })
 
 export const deletePractitioner = createServerFn({ method: 'POST' })

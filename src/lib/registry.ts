@@ -34,6 +34,11 @@ export function pwzFromPesel(pesel: string): string {
   return tail.startsWith('0') ? `1${tail.slice(1)}` : tail
 }
 
+/** A PWZ number is exactly 7 digits. */
+export function isPwz(value: string) {
+  return /^\d{7}$/.test(value)
+}
+
 /** A PESEL is any non-empty string of digits (no fixed length). */
 export function isPesel(value: string) {
   return value.length > 0 && value.length <= PESEL_MAX_LENGTH && /^\d+$/.test(value)

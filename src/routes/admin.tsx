@@ -9,10 +9,18 @@ import {
   updateUser,
   type User,
 } from '@netlify/identity'
-import { LogOut, Trash2, UserPlus } from 'lucide-react'
+import { LogOut, Pencil, Trash2, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -31,6 +39,7 @@ import {
   ROLE_MANAGEMENT,
   isParamedic,
   isPesel,
+  isPwz,
   pwzFromPesel,
 } from '@/lib/registry'
 import {
@@ -38,6 +47,7 @@ import {
   deletePractitioner,
   getCooldown,
   listPractitioners,
+  updatePractitioner,
 } from '@/lib/registry.functions'
 
 export const Route = createFileRoute('/admin')({
@@ -255,6 +265,7 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
   const canAdd = isAdmin || isManagement
   const [rows, setRows] = useState<Row[] | null>(null)
+  const [editing, setEditing] = useState<Row | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -323,7 +334,7 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                       <TableHead>PWZ</TableHead>
                       <TableHead>Zawód</TableHead>
                       <TableHead>Specjalizacja</TableHead>
-                      {isAdmin && <TableHead className="w-12" />}
+                      {isAdmin && <TableHead className="w-24" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -339,7 +350,15 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                         <TableCell>{row.profession}</TableCell>
                         <TableCell>{row.specialization}</TableCell>
                         {isAdmin && (
-                          <TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Edytuj ${row.firstName} ${row.lastName}`}
+                              onClick={() => setEditing(row)}
+                            >
+                              <Pencil className="size-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -357,9 +376,128 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
               </div>
             )}
           </Panel>
+          {isAdmin && (
+            <EditDialog
+              row={editing}
+              onClose={() => setEditing(null)}
+              onSaved={refresh}
+            />
+          )}
         </>
       )}
     </div>
+  )
+}
+
+function EditDialog({
+  row,
+  onClose,
+  onSaved,
+}: {
+  row: Row | null
+  onClose: () => void
+  onSaved: () => Promise<void>
+}) {
+  const [pesel, setPesel] = useState('')
+  const [pwz, setPwz] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Reset the form whenever a different entry is opened.
+  useEffect(() => {
+    setPesel(row?.pesel ?? '')
+    setPwz(row?.pwz ?? '')
+    setError(null)
+  }, [row])
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!row) return
+    if (!isPesel(pesel)) {
+      setError('PESEL musi składać się z samych cyfr (co najmniej jednej).')
+      return
+    }
+    if (!isPwz(pwz)) {
+      setError('Numer PWZ musi składać się z 7 cyfr.')
+      return
+    }
+    setPending(true)
+    setError(null)
+    try {
+      const result = await updatePractitioner({ data: { id: row.id, pesel, pwz } })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      toast.success('Zapisano zmiany.')
+      onClose()
+      await onSaved()
+    } catch {
+      setError('Nie udało się zapisać zmian.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <Dialog open={row !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            Edytuj wpis: {row?.firstName} {row?.lastName}
+          </DialogTitle>
+          <DialogDescription>
+            Możesz zmienić numer PESEL oraz ręcznie ustawić numer PWZ.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="edit-pesel">PESEL</Label>
+            <Input
+              id="edit-pesel"
+              inputMode="numeric"
+              value={pesel}
+              onChange={(e) =>
+                setPesel(e.target.value.replace(/\D/g, '').slice(0, PESEL_MAX_LENGTH))
+              }
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-pwz">Numer PWZ</Label>
+            <Input
+              id="edit-pwz"
+              inputMode="numeric"
+              value={pwz}
+              onChange={(e) => setPwz(e.target.value.replace(/\D/g, '').slice(0, 7))}
+              required
+            />
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:no-underline disabled:opacity-50"
+              disabled={!isPesel(pesel)}
+              onClick={() => setPwz(pwzFromPesel(pesel))}
+            >
+              Wylicz z PESEL
+              {isPesel(pesel) ? ` (${pwzFromPesel(pesel)})` : ''}
+            </button>
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Anuluj
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Zapisywanie…' : 'Zapisz zmiany'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
