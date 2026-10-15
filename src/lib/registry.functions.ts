@@ -131,6 +131,8 @@ export const listPractitioners = createServerFn({ method: 'GET' })
       id: row.id,
       // PESEL is only ever sent to admins.
       pesel: context.isAdmin ? row.pesel : null,
+      // Raw value (or null) so the admin edit form can be prefilled.
+      rawSpecialization: row.specialization,
       ...toPublic(row),
     }))
   })
@@ -205,17 +207,18 @@ const updateInput = z.object({
     .string()
     .trim()
     .regex(/^\d{7}$/, 'Numer PWZ musi składać się z 7 cyfr'),
+  specialization: z.string().trim().max(160).optional(),
 })
 
 export type UpdateResult = { ok: true } | { ok: false; error: string }
 
-/** Admin only: change the PESEL and/or set the PWZ by hand for an existing entry. */
+/** Admin only: change PESEL, set PWZ by hand and edit the specialization of an existing entry. */
 export const updatePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(updateInput)
   .handler(async ({ data }): Promise<UpdateResult> => {
     const [existing] = await db
-      .select({ id: practitioners.id })
+      .select({ id: practitioners.id, profession: practitioners.profession })
       .from(practitioners)
       .where(eq(practitioners.id, data.id))
       .limit(1)
@@ -243,7 +246,14 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
     }
     await db
       .update(practitioners)
-      .set({ pesel: data.pesel, pwz: data.pwz })
+      .set({
+        pesel: data.pesel,
+        pwz: data.pwz,
+        // Paramedics never have a specialization (shown as "nd.").
+        specialization: isParamedic(existing.profession)
+          ? null
+          : data.specialization || null,
+      })
       .where(eq(practitioners.id, data.id))
     return { ok: true }
   })

@@ -400,13 +400,16 @@ function EditDialog({
 }) {
   const [pesel, setPesel] = useState('')
   const [pwz, setPwz] = useState('')
+  const [specialization, setSpecialization] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const paramedic = row ? isParamedic(row.profession) : false
 
   // Reset the form whenever a different entry is opened.
   useEffect(() => {
     setPesel(row?.pesel ?? '')
     setPwz(row?.pwz ?? '')
+    setSpecialization(row?.rawSpecialization ?? '')
     setError(null)
   }, [row])
 
@@ -424,7 +427,14 @@ function EditDialog({
     setPending(true)
     setError(null)
     try {
-      const result = await updatePractitioner({ data: { id: row.id, pesel, pwz } })
+      const result = await updatePractitioner({
+        data: {
+          id: row.id,
+          pesel,
+          pwz,
+          specialization: paramedic ? undefined : specialization,
+        },
+      })
       if (!result.ok) {
         setError(result.error)
         return
@@ -447,7 +457,8 @@ function EditDialog({
             Edytuj wpis: {row?.firstName} {row?.lastName}
           </DialogTitle>
           <DialogDescription>
-            Możesz zmienić numer PESEL oraz ręcznie ustawić numer PWZ.
+            Możesz zmienić numer PESEL, specjalizację oraz ręcznie ustawić numer
+            PWZ.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
@@ -481,6 +492,20 @@ function EditDialog({
               Wylicz z PESEL
               {isPesel(pesel) ? ` (${pwzFromPesel(pesel)})` : ''}
             </button>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-specialization">Specjalizacja</Label>
+            {paramedic ? (
+              <Input id="edit-specialization" value="nd." disabled />
+            ) : (
+              <Input
+                id="edit-specialization"
+                value={specialization}
+                onChange={(e) => setSpecialization(e.target.value)}
+                placeholder="np. chirurgia ogólna"
+                maxLength={160}
+              />
+            )}
           </div>
           {error && (
             <p role="alert" className="text-sm text-destructive">
