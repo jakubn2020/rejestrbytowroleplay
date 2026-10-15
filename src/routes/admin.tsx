@@ -98,7 +98,7 @@ function AdminPage() {
   }, [])
 
   return (
-    <div className="mx-auto max-w-5xl px-5 py-12">
+    <div className="mx-auto max-w-[1062px] px-5 py-12">
       <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
         Panel administratora
       </h1>
