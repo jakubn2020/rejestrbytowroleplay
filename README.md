@@ -31,7 +31,9 @@ Migracje bazy znajdują się w `netlify/database/migrations/` i są stosowane au
 
 ## Role
 
-- `admin` – dodaje i usuwa osoby bez ograniczeń, widzi PESEL oraz może edytować PESEL i specjalizację oraz ręcznie zmieniać numer PWZ już dodanych wpisów (ikona ołówka w tabeli; PWZ musi mieć 7 cyfr i być unikalny). Tylko `admin` widzi też przyciski „Dodaj kierownictwo” (tworzy konto z rolą `kierownictwo`: e-mail + hasło początkowe) i „Dziennik zdarzeń” (kto, co i kiedy dodał, edytował lub usunął oraz kiedy utworzono konto kierownictwa).
+- `admin` – dodaje i usuwa osoby bez ograniczeń, widzi PESEL oraz może edytować PESEL i specjalizację oraz ręcznie zmieniać numer PWZ już dodanych wpisów (ikona ołówka w tabeli; PWZ musi mieć 7 cyfr i być unikalny). Tylko `admin` widzi też przyciski „Dodaj kierownictwo” (tworzy konto z rolą `kierownictwo`: e-mail + hasło początkowe) „Konta kierownictwa” (lista kont z możliwością usunięcia; kont admina nie da się tu usunąć) i „Dziennik zdarzeń” (kto, co i kiedy dodał, edytował lub usunął oraz kiedy utworzono konto kierownictwa).
 - `kierownictwo` – może dodać jedną osobę na 5 minut (limit liczony osobno dla każdego konta, po stronie serwera), nie może usuwać wpisów i nie widzi numerów PESEL.
 
 Role nadaje się w ustawieniach Netlify Identity (Users → użytkownik → Roles).
+
+Tabela „Osoby w rejestrze” w panelu ma wyszukiwarkę pracowników (imię, nazwisko, PWZ, zawód, specjalizacja; `admin` może też szukać po PESEL). Działa dla obu ról, ignoruje wielkość liter i polskie znaki, a słowa można wpisać w dowolnej kolejności.

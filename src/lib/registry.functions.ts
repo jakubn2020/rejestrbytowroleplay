@@ -350,6 +350,54 @@ export const listAuditLog = createServerFn({ method: 'GET' })
     }))
   })
 
+/** Admin only: Identity accounts that have the `kierownictwo` role (and are not admins). */
+export const listManagement = createServerFn({ method: 'GET' })
+  .middleware([requireAdmin])
+  .handler(async () => {
+    const found = new Map<string, { id: string; email: string }>()
+    const perPage = 100
+    for (let page = 1; page <= 20; page++) {
+      const users = await admin.listUsers({ page, perPage })
+      for (const user of users) {
+        const roles = user.roles ?? []
+        if (roles.includes(ROLE_MANAGEMENT) && !roles.includes(ROLE_ADMIN)) {
+          found.set(user.id, { id: user.id, email: user.email ?? user.id })
+        }
+      }
+      if (users.length < perPage) break
+    }
+    return [...found.values()].sort((a, b) => a.email.localeCompare(b.email))
+  })
+
+export type DeleteManagementResult = { ok: true } | { ok: false; error: string }
+
+/** Admin only: permanently deletes a `kierownictwo` account. Admin accounts are refused. */
+export const deleteManagement = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(z.object({ id: z.string().min(1).max(100) }))
+  .handler(async ({ data, context }): Promise<DeleteManagementResult> => {
+    let email = data.id
+    try {
+      const target = await admin.getUser(data.id)
+      const roles = target.roles ?? []
+      if (!roles.includes(ROLE_MANAGEMENT) || roles.includes(ROLE_ADMIN)) {
+        return { ok: false, error: 'To konto nie jest kontem kierownictwa.' }
+      }
+      email = target.email ?? target.id
+      await admin.deleteUser(data.id)
+    } catch {
+      return { ok: false, error: 'Nie udało się usunąć konta.' }
+    }
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'delete_management',
+      target: email,
+      details: `Rola: ${ROLE_MANAGEMENT}`,
+    })
+    return { ok: true }
+  })
+
 const managementInput = z.object({
   email: z
     .string()

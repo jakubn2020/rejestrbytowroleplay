@@ -9,7 +9,16 @@ import {
   updateUser,
   type User,
 } from '@netlify/identity'
-import { LogOut, Pencil, ScrollText, Trash2, UserCog, UserPlus } from 'lucide-react'
+import {
+  LogOut,
+  Pencil,
+  ScrollText,
+  Search,
+  Trash2,
+  UserCog,
+  UserPlus,
+  Users,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -46,9 +55,11 @@ import {
 import {
   addManagement,
   addPractitioner,
+  deleteManagement,
   deletePractitioner,
   getCooldown,
   listAuditLog,
+  listManagement,
   listPractitioners,
   updatePractitioner,
 } from '@/lib/registry.functions'
@@ -263,6 +274,34 @@ function PasswordForm({
 
 type Row = Awaited<ReturnType<typeof listPractitioners>>[number]
 
+/** Lowercase and strip Polish diacritics so "zolw" finds "Żółw". */
+function normalize(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ł/gi, 'l')
+    .toLowerCase()
+}
+
+/** Every word of the query must appear somewhere in the row (any order). */
+function matchesQuery(row: Row, query: string) {
+  const words = normalize(query).split(/\s+/).filter(Boolean)
+  if (words.length === 0) return true
+  const haystack = normalize(
+    [
+      row.firstName,
+      row.lastName,
+      row.pwz,
+      row.profession,
+      row.specialization,
+      row.pesel, // null for kierownictwo, so they cannot search by PESEL
+    ]
+      .filter(Boolean)
+      .join(' '),
+  )
+  return words.every((word) => haystack.includes(word))
+}
+
 function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   const isAdmin = user.roles?.includes(ROLE_ADMIN) ?? false
   const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
@@ -271,6 +310,8 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [editing, setEditing] = useState<Row | null>(null)
   const [managementOpen, setManagementOpen] = useState(false)
   const [showLog, setShowLog] = useState(false)
+  const [showManagement, setShowManagement] = useState(false)
+  const [query, setQuery] = useState('')
   // Bumped after every change so an open audit log reloads itself.
   const [logVersion, setLogVersion] = useState(0)
 
@@ -291,6 +332,8 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   useEffect(() => {
     if (canAdd) void refresh()
   }, [canAdd, refresh])
+
+  const visible = rows ? rows.filter((row) => matchesQuery(row, query)) : []
 
   async function remove(row: Row) {
     if (!confirm(`Usunąć ${row.firstName} ${row.lastName} z rejestru?`)) return
@@ -320,12 +363,24 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
             <UserCog className="size-4" /> Dodaj kierownictwo
           </Button>
           <Button
+            variant={showManagement ? 'default' : 'outline'}
+            onClick={() => setShowManagement((open) => !open)}
+          >
+            <Users className="size-4" /> Konta kierownictwa
+          </Button>
+          <Button
             variant={showLog ? 'default' : 'outline'}
             onClick={() => setShowLog((open) => !open)}
           >
             <ScrollText className="size-4" /> Dziennik zdarzeń
           </Button>
         </div>
+      )}
+      {isAdmin && showManagement && (
+        <ManagementPanel
+          key={logVersion}
+          onChanged={() => setLogVersion((version) => version + 1)}
+        />
       )}
       {isAdmin && showLog && <AuditLogPanel key={logVersion} />}
       {isAdmin && (
@@ -350,8 +405,30 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
           <AddForm onAdded={refreshAll} limited={!isAdmin} />
           <Panel>
             <h2 className="text-lg font-semibold">
-              Osoby w rejestrze{rows ? ` (${rows.length})` : ''}
+              Osoby w rejestrze
+              {rows
+                ? query.trim()
+                  ? ` (${visible.length} z ${rows.length})`
+                  : ` (${rows.length})`
+                : ''}
             </h2>
+            {rows && rows.length > 0 && (
+              <div className="relative mt-4">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={
+                    isAdmin
+                      ? 'Szukaj pracownika: imię, nazwisko, PESEL, PWZ, zawód, specjalizacja…'
+                      : 'Szukaj pracownika: imię, nazwisko, PWZ, zawód, specjalizacja…'
+                  }
+                  aria-label="Szukaj pracownika"
+                  className="pl-9"
+                />
+              </div>
+            )}
             {rows === null ? (
               <p className="mt-4 text-muted-foreground">Wczytywanie…</p>
             ) : rows.length === 0 ? (
@@ -372,7 +449,7 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((row) => (
+                    {visible.map((row) => (
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">
                           {row.firstName} {row.lastName}
@@ -407,6 +484,11 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                     ))}
                   </TableBody>
                 </Table>
+                {visible.length === 0 && (
+                  <p className="mt-4 text-center text-muted-foreground">
+                    Brak osób pasujących do „{query.trim()}”.
+                  </p>
+                )}
               </div>
             )}
           </Panel>
@@ -420,6 +502,102 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
         </>
       )}
     </div>
+  )
+}
+
+type ManagementRow = Awaited<ReturnType<typeof listManagement>>[number]
+
+function ManagementPanel({ onChanged }: { onChanged: () => void }) {
+  const [rows, setRows] = useState<ManagementRow[] | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  const load = useCallback(async () => {
+    setFailed(false)
+    try {
+      setRows(await listManagement())
+    } catch {
+      setFailed(true)
+      setRows([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function remove(row: ManagementRow) {
+    if (
+      !confirm(
+        `Usunąć konto kierownictwa ${row.email}? Ta osoba nie będzie mogła się już zalogować.`,
+      )
+    ) {
+      return
+    }
+    try {
+      const result = await deleteManagement({ data: { id: row.id } })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success('Konto kierownictwa usunięte.')
+      onChanged() // remounts this panel, which reloads the list
+    } catch {
+      toast.error('Nie udało się usunąć konta.')
+    }
+  }
+
+  return (
+    <Panel>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Users className="size-5" /> Konta kierownictwa
+          {rows && !failed ? ` (${rows.length})` : ''}
+        </h2>
+        <Button variant="outline" size="sm" onClick={() => void load()}>
+          Odśwież
+        </Button>
+      </div>
+      {rows === null ? (
+        <p className="mt-4 text-muted-foreground">Wczytywanie…</p>
+      ) : failed ? (
+        <p role="alert" className="mt-4 text-sm text-destructive">
+          Nie udało się wczytać kont kierownictwa.
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="mt-4 text-muted-foreground">
+          Brak kont kierownictwa. Dodaj pierwsze przyciskiem „Dodaj
+          kierownictwo”.
+        </p>
+      ) : (
+        <div className="mt-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>E-mail</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="font-medium">{row.email}</TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Usuń konto kierownictwa ${row.email}`}
+                      onClick={() => void remove(row)}
+                    >
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </Panel>
   )
 }
 

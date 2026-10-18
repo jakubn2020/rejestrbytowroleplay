@@ -20,6 +20,7 @@ export const AUDIT_ACTION_LABELS = {
   update: 'Edytowano wpis',
   delete: 'Usunięto osobę',
   add_management: 'Dodano konto kierownictwa',
+  delete_management: 'Usunięto konto kierownictwa',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS
