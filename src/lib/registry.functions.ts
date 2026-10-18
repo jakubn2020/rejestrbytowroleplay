@@ -1,10 +1,14 @@
 import { createMiddleware, createServerFn } from '@tanstack/react-start'
-import { getUser } from '@netlify/identity'
+import { admin, getUser } from '@netlify/identity'
 import { and, asc, desc, eq, ne, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../../db'
-import { practitioners, type Practitioner } from '../../db/schema'
+import {
+  auditLog,
+  practitioners,
+  type Practitioner,
+} from '../../db/schema'
 import {
   MANAGEMENT_COOLDOWN_SECONDS,
   PESEL_MAX_LENGTH,
@@ -13,6 +17,7 @@ import {
   ROLE_MANAGEMENT,
   isParamedic,
   pwzFromPesel,
+  type AuditAction,
   type PublicEntry,
 } from './registry'
 
@@ -94,9 +99,25 @@ const requireAdmin = createMiddleware({ type: 'function' }).server(
     if (!user?.roles?.includes(ROLE_ADMIN)) {
       throw new Error('Brak uprawnień administratora')
     }
-    return next({ context: { user } })
+    const identity = (user.email ?? user.id).toLowerCase()
+    return next({ context: { user, identity } })
   },
 )
+
+/** Best-effort audit trail: a logging failure must never undo or block the action itself. */
+async function logEvent(entry: {
+  actor: string
+  actorRole: string
+  action: AuditAction
+  target?: string
+  details?: string
+}) {
+  try {
+    await db.insert(auditLog).values(entry)
+  } catch (error) {
+    console.error('Nie udało się zapisać w dzienniku zdarzeń', error)
+  }
+}
 
 /** Seconds a `kierownictwo` account still has to wait before adding another entry. */
 async function cooldownLeft(identity: string): Promise<number> {
@@ -192,6 +213,18 @@ export const addPractitioner = createServerFn({ method: 'POST' })
     await db
       .insert(practitioners)
       .values({ ...data, pwz, createdBy: context.identity })
+    await logEvent({
+      actor: context.identity,
+      actorRole: context.isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
+      action: 'add',
+      target: `${data.firstName} ${data.lastName} (PWZ ${pwz})`,
+      details: [
+        `Zawód: ${data.profession}`,
+        data.specialization ? `specjalizacja: ${data.specialization}` : null,
+      ]
+        .filter(Boolean)
+        .join(', '),
+    })
     return { ok: true, pwz }
   })
 
@@ -216,9 +249,9 @@ export type UpdateResult = { ok: true } | { ok: false; error: string }
 export const updatePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(updateInput)
-  .handler(async ({ data }): Promise<UpdateResult> => {
+  .handler(async ({ data, context }): Promise<UpdateResult> => {
     const [existing] = await db
-      .select({ id: practitioners.id, profession: practitioners.profession })
+      .select()
       .from(practitioners)
       .where(eq(practitioners.id, data.id))
       .limit(1)
@@ -244,24 +277,139 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
             : `Numer PWZ ${data.pwz} jest już przypisany do innej osoby.`,
       }
     }
+    // Paramedics never have a specialization (shown as "nd.").
+    const specialization = isParamedic(existing.profession)
+      ? null
+      : data.specialization || null
     await db
       .update(practitioners)
-      .set({
-        pesel: data.pesel,
-        pwz: data.pwz,
-        // Paramedics never have a specialization (shown as "nd.").
-        specialization: isParamedic(existing.profession)
-          ? null
-          : data.specialization || null,
-      })
+      .set({ pesel: data.pesel, pwz: data.pwz, specialization })
       .where(eq(practitioners.id, data.id))
+
+    const changes: string[] = []
+    if (existing.pesel !== data.pesel) {
+      changes.push(`PESEL: ${existing.pesel} → ${data.pesel}`)
+    }
+    if (existing.pwz !== data.pwz) {
+      changes.push(`PWZ: ${existing.pwz} → ${data.pwz}`)
+    }
+    if ((existing.specialization ?? null) !== specialization) {
+      changes.push(
+        `specjalizacja: ${existing.specialization ?? 'brak'} → ${specialization ?? 'brak'}`,
+      )
+    }
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'update',
+      target: `${existing.firstName} ${existing.lastName} (PWZ ${data.pwz})`,
+      details: changes.length ? changes.join('; ') : 'bez zmian',
+    })
     return { ok: true }
   })
 
 export const deletePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(z.object({ id: z.number().int().positive() }))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const [existing] = await db
+      .select()
+      .from(practitioners)
+      .where(eq(practitioners.id, data.id))
+      .limit(1)
     await db.delete(practitioners).where(eq(practitioners.id, data.id))
+    if (existing) {
+      await logEvent({
+        actor: context.identity,
+        actorRole: ROLE_ADMIN,
+        action: 'delete',
+        target: `${existing.firstName} ${existing.lastName} (PWZ ${existing.pwz})`,
+        details: `Zawód: ${existing.profession}`,
+      })
+    }
     return { ok: true }
+  })
+
+/** Admin only: the audit log, newest first. */
+export const listAuditLog = createServerFn({ method: 'GET' })
+  .middleware([requireAdmin])
+  .handler(async () => {
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+      .limit(300)
+    return rows.map((row) => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      actor: row.actor,
+      actorRole: row.actorRole,
+      action: row.action,
+      target: row.target,
+      details: row.details,
+    }))
+  })
+
+const managementInput = z.object({
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('Podaj poprawny adres e-mail')
+    .max(200),
+  password: z
+    .string()
+    .min(8, 'Hasło musi mieć co najmniej 8 znaków')
+    .max(200),
+})
+
+export type AddManagementResult =
+  | { ok: true; email: string }
+  | { ok: false; error: string }
+
+/** Admin only: creates a Netlify Identity account that has the `kierownictwo` role. */
+export const addManagement = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(managementInput)
+  .handler(async ({ data, context }): Promise<AddManagementResult> => {
+    let userId: string
+    let hasRole: boolean
+    try {
+      const user = await admin.createUser({
+        email: data.email,
+        password: data.password,
+        data: { app_metadata: { roles: [ROLE_MANAGEMENT] } },
+      })
+      userId = user.id
+      hasRole = user.roles?.includes(ROLE_MANAGEMENT) ?? false
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      return {
+        ok: false,
+        error: /already|exist|registered|taken/i.test(message)
+          ? 'Konto z tym adresem e-mail już istnieje.'
+          : 'Nie udało się utworzyć konta. Spróbuj ponownie.',
+      }
+    }
+    if (!hasRole) {
+      // Make sure the role is stored even if createUser ignored app_metadata.
+      try {
+        await admin.updateUser(userId, {
+          app_metadata: { roles: [ROLE_MANAGEMENT] },
+        })
+      } catch {
+        return {
+          ok: false,
+          error: `Konto ${data.email} zostało utworzone, ale nie udało się nadać roli. Nadaj rolę ${ROLE_MANAGEMENT} w Netlify Identity.`,
+        }
+      }
+    }
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'add_management',
+      target: data.email,
+      details: `Rola: ${ROLE_MANAGEMENT}`,
+    })
+    return { ok: true, email: data.email }
   })

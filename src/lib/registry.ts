@@ -14,6 +14,16 @@ export type Profession = (typeof PROFESSIONS)[number]
 export const ROLE_ADMIN = 'admin'
 export const ROLE_MANAGEMENT = 'kierownictwo'
 
+/** Audit-log actions and their Polish labels. */
+export const AUDIT_ACTION_LABELS = {
+  add: 'Dodano osobę',
+  update: 'Edytowano wpis',
+  delete: 'Usunięto osobę',
+  add_management: 'Dodano konto kierownictwa',
+} as const
+
+export type AuditAction = keyof typeof AUDIT_ACTION_LABELS
+
 /** How long a `kierownictwo` user must wait between two added entries. */
 export const MANAGEMENT_COOLDOWN_SECONDS = 5 * 60
 

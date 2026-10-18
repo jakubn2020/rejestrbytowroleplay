@@ -14,3 +14,16 @@ export const practitioners = pgTable('practitioners', {
 })
 
 export type Practitioner = typeof practitioners.$inferSelect
+
+/** Who did what and when. Visible to admins only. */
+export const auditLog = pgTable('audit_log', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  actor: text().notNull(),
+  actorRole: text('actor_role').notNull(),
+  action: text().notNull(),
+  target: text(),
+  details: text(),
+})
+
+export type AuditEntry = typeof auditLog.$inferSelect

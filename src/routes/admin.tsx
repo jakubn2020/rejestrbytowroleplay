@@ -9,7 +9,7 @@ import {
   updateUser,
   type User,
 } from '@netlify/identity'
-import { LogOut, Pencil, Trash2, UserPlus } from 'lucide-react'
+import { LogOut, Pencil, ScrollText, Trash2, UserCog, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -32,6 +32,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
+  AUDIT_ACTION_LABELS,
   MANAGEMENT_COOLDOWN_SECONDS,
   PESEL_MAX_LENGTH,
   PROFESSIONS,
@@ -43,9 +44,11 @@ import {
   pwzFromPesel,
 } from '@/lib/registry'
 import {
+  addManagement,
   addPractitioner,
   deletePractitioner,
   getCooldown,
+  listAuditLog,
   listPractitioners,
   updatePractitioner,
 } from '@/lib/registry.functions'
@@ -266,6 +269,10 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   const canAdd = isAdmin || isManagement
   const [rows, setRows] = useState<Row[] | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
+  const [managementOpen, setManagementOpen] = useState(false)
+  const [showLog, setShowLog] = useState(false)
+  // Bumped after every change so an open audit log reloads itself.
+  const [logVersion, setLogVersion] = useState(0)
 
   const refresh = useCallback(async () => {
     try {
@@ -276,6 +283,11 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
     }
   }, [])
 
+  const refreshAll = useCallback(async () => {
+    await refresh()
+    setLogVersion((version) => version + 1)
+  }, [refresh])
+
   useEffect(() => {
     if (canAdd) void refresh()
   }, [canAdd, refresh])
@@ -285,7 +297,7 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
     try {
       await deletePractitioner({ data: { id: row.id } })
       toast.success('Wpis usunięty.')
-      await refresh()
+      await refreshAll()
     } catch {
       toast.error('Nie udało się usunąć wpisu.')
     }
@@ -302,6 +314,28 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
         </Button>
       </div>
 
+      {isAdmin && (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setManagementOpen(true)}>
+            <UserCog className="size-4" /> Dodaj kierownictwo
+          </Button>
+          <Button
+            variant={showLog ? 'default' : 'outline'}
+            onClick={() => setShowLog((open) => !open)}
+          >
+            <ScrollText className="size-4" /> Dziennik zdarzeń
+          </Button>
+        </div>
+      )}
+      {isAdmin && showLog && <AuditLogPanel key={logVersion} />}
+      {isAdmin && (
+        <ManagementDialog
+          open={managementOpen}
+          onClose={() => setManagementOpen(false)}
+          onCreated={() => setLogVersion((version) => version + 1)}
+        />
+      )}
+
       {!canAdd ? (
         <Panel>
           <p>
@@ -313,7 +347,7 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
         </Panel>
       ) : (
         <>
-          <AddForm onAdded={refresh} limited={!isAdmin} />
+          <AddForm onAdded={refreshAll} limited={!isAdmin} />
           <Panel>
             <h2 className="text-lg font-semibold">
               Osoby w rejestrze{rows ? ` (${rows.length})` : ''}
@@ -380,12 +414,199 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
             <EditDialog
               row={editing}
               onClose={() => setEditing(null)}
-              onSaved={refresh}
+              onSaved={refreshAll}
             />
           )}
         </>
       )}
     </div>
+  )
+}
+
+type AuditRow = Awaited<ReturnType<typeof listAuditLog>>[number]
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleString('pl-PL', {
+    timeZone: 'Europe/Warsaw',
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  })
+}
+
+function AuditLogPanel() {
+  const [rows, setRows] = useState<AuditRow[] | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  const load = useCallback(async () => {
+    setFailed(false)
+    try {
+      setRows(await listAuditLog())
+    } catch {
+      setFailed(true)
+      setRows([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <Panel>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <ScrollText className="size-5" /> Dziennik zdarzeń
+        </h2>
+        <Button variant="outline" size="sm" onClick={() => void load()}>
+          Odśwież
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Kto, co i kiedy zrobił (ostatnie 300 zdarzeń, najnowsze na górze).
+      </p>
+      {rows === null ? (
+        <p className="mt-4 text-muted-foreground">Wczytywanie…</p>
+      ) : failed ? (
+        <p role="alert" className="mt-4 text-sm text-destructive">
+          Nie udało się wczytać dziennika zdarzeń.
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="mt-4 text-muted-foreground">Brak zapisanych zdarzeń.</p>
+      ) : (
+        <div className="mt-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Kiedy</TableHead>
+                <TableHead>Kto</TableHead>
+                <TableHead>Akcja</TableHead>
+                <TableHead>Dotyczy</TableHead>
+                <TableHead>Szczegóły</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="whitespace-nowrap">
+                    {formatTime(row.createdAt)}
+                  </TableCell>
+                  <TableCell>
+                    {row.actor}
+                    <span className="block text-xs text-muted-foreground">
+                      {row.actorRole}
+                    </span>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {AUDIT_ACTION_LABELS[
+                      row.action as keyof typeof AUDIT_ACTION_LABELS
+                    ] ?? row.action}
+                  </TableCell>
+                  <TableCell>{row.target}</TableCell>
+                  <TableCell className="whitespace-normal">{row.details}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function ManagementDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (open) setError(null)
+  }, [open])
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const fields = new FormData(form)
+    setPending(true)
+    setError(null)
+    try {
+      const result = await addManagement({
+        data: {
+          email: String(fields.get('email')),
+          password: String(fields.get('password')),
+        },
+      })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      toast.success(`Dodano konto kierownictwa: ${result.email}`)
+      form.reset()
+      onCreated()
+      onClose()
+    } catch {
+      setError('Nie udało się utworzyć konta.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Dodaj konto kierownictwa</DialogTitle>
+          <DialogDescription>
+            Tworzy konto z rolą kierownictwo: dodaje osoby do rejestru (jedną na
+            5 minut), nie może ich usuwać ani edytować. Przekaż osobie e-mail i
+            hasło początkowe.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="mgmt-email">E-mail</Label>
+            <Input
+              id="mgmt-email"
+              name="email"
+              type="email"
+              autoComplete="off"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="mgmt-password">Hasło początkowe</Label>
+            <Input
+              id="mgmt-password"
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              required
+            />
+            <p className="text-xs text-muted-foreground">Co najmniej 8 znaków.</p>
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Anuluj
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Tworzenie…' : 'Utwórz konto'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
