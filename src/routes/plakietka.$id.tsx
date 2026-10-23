@@ -160,10 +160,10 @@ function BadgeView({ badge }: { badge: Badge }) {
                   className="text-[8pt] font-extrabold leading-tight tracking-wide"
                   style={{ color: theme.accent }}
                 >
-                  PLAKIETKA IDENTYFIKACYJNA
+                  PRAWO WYKONYWANIA ZAWODU
                 </p>
                 <p
-                  className="text-[5.5pt] font-bold uppercase leading-tight"
+                  className="text-[6.5pt] font-bold leading-tight"
                   style={{ color: theme.stripe }}
                 >
                   {BADGE_TITLES[kind]}
@@ -181,7 +181,7 @@ function BadgeView({ badge }: { badge: Badge }) {
                   </BadgeField>
                   <BadgeField label="Tytuł zawodowy">
                     <span className="text-[7.5pt] font-semibold">
-                      {BADGE_TITLES[kind].toLowerCase()}
+                      {BADGE_TITLES[kind]}
                     </span>
                   </BadgeField>
                   <BadgeField label="Numer PESEL">
