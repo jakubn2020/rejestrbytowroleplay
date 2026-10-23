@@ -17,7 +17,7 @@ export function SiteHeader() {
   }, [])
 
   return (
-    <header className="bg-[var(--registry-navy)] text-white">
+    <header className="bg-[var(--registry-navy)] text-white print:hidden">
       <div className="h-1 bg-[var(--registry-red)]" />
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
         <Link
@@ -45,7 +45,7 @@ export function SiteHeader() {
 
 export function SiteFooter() {
   return (
-    <footer className="border-t bg-white">
+    <footer className="border-t bg-white print:hidden">
       <p className="mx-auto max-w-5xl px-5 py-6 text-center text-sm text-muted-foreground">
         Centralny Rejestr Lekarzy, Pielęgniarzy i Ratowników Medycznych - Strona
         Fikcyjna Na Potrzeby Roleplayu

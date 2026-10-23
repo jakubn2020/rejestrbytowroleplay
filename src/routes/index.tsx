@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
-import { Search } from 'lucide-react'
+import { Link, createFileRoute } from '@tanstack/react-router'
+import { FileText, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatDate, type EntryStatus } from '@/lib/registry'
 import { searchRegistry, type SearchResult } from '@/lib/registry.functions'
 
 export const Route = createFileRoute('/')({
@@ -103,21 +104,62 @@ function Home() {
                     <h2 className="font-[family-name:var(--font-heading)] text-xl font-semibold">
                       {entry.firstName} {entry.lastName}
                     </h2>
-                    <span className="rounded bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                      Wpis aktywny
-                    </span>
+                    <StatusBadge status={entry.status} />
                   </div>
                   <dl className="grid gap-x-6 gap-y-3 px-5 py-4 sm:grid-cols-3">
                     <Field label="Numer PWZ" value={entry.pwz} mono />
                     <Field label="Zawód" value={entry.profession} />
                     <Field label="Specjalizacja" value={entry.specialization} />
+                    <Field label="Numer wpisu" value={entry.entryNumber} mono />
+                    <Field label="Data wpisu" value={formatDate(entry.entryDate)} />
                   </dl>
+                  {entry.status === 'active' && (
+                    <div className="border-t px-5 py-3">
+                      <Button asChild variant="outline" size="sm">
+                        <Link
+                          to="/zaswiadczenie/$pwz"
+                          params={{ pwz: entry.pwz }}
+                          target="_blank"
+                          rel="noopener"
+                        >
+                          <FileText className="size-4" />
+                          Zaświadczenie o posiadaniu tytułu (PDF)
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
                 </article>
               ))}
             </div>
           ))}
       </section>
     </div>
+  )
+}
+
+const STATUS_BADGES: Record<EntryStatus, { label: string; className: string }> = {
+  active: {
+    label: 'Wpis aktywny',
+    className: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  },
+  suspended: {
+    label: 'Wpis zawieszony',
+    className: 'bg-amber-50 text-amber-800 ring-amber-200',
+  },
+  expired: {
+    label: 'Wpis nieaktywny',
+    className: 'bg-red-50 text-red-700 ring-red-200',
+  },
+}
+
+function StatusBadge({ status }: { status: EntryStatus }) {
+  const badge = STATUS_BADGES[status]
+  return (
+    <span
+      className={`rounded px-2 py-1 text-xs font-semibold ring-1 ${badge.className}`}
+    >
+      {badge.label}
+    </span>
   )
 }
 

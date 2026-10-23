@@ -10,10 +10,16 @@ import {
   type User,
 } from '@netlify/identity'
 import {
+  ArrowDown,
+  ArrowUp,
+  BadgeCheck,
+  Inbox,
+  KeyRound,
   LogOut,
   Pencil,
   ScrollText,
   Search,
+  Stamp,
   Trash2,
   UserCog,
   UserPlus,
@@ -41,28 +47,46 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  AUDIT_ACTION_LABELS,
-  MANAGEMENT_COOLDOWN_SECONDS,
+  ENTRY_STATUSES,
+  ENTRY_STATUS_KEYS,
   PESEL_MAX_LENGTH,
   PROFESSIONS,
   ROLE_ADMIN,
   ROLE_MANAGEMENT,
+  TRASH_RETENTION_DAYS,
+  formatDate,
   isParamedic,
   isPesel,
   isPwz,
   pwzFromPesel,
+  type EntryStatus,
 } from '@/lib/registry'
 import {
   addManagement,
   addPractitioner,
   deleteManagement,
   deletePractitioner,
-  getCooldown,
-  listAuditLog,
   listManagement,
   listPractitioners,
   updatePractitioner,
 } from '@/lib/registry.functions'
+
+import { AuditLogPanel } from '@/components/admin/audit-log-panel'
+import { MfaForm } from '@/components/admin/mfa-form'
+import { Panel } from '@/components/admin/panel'
+import {
+  ChangePasswordDialog,
+  ResetManagementPasswordDialog,
+} from '@/components/admin/password-dialogs'
+import { RequestForm } from '@/components/admin/request-form'
+import {
+  MyRequestsPanel,
+  RequestsPanel,
+} from '@/components/admin/requests-panels'
+import { SealDialog } from '@/components/admin/seal-dialog'
+import { TrashPanel } from '@/components/admin/trash-panel'
+import { endMfaSession, getMfaStatus } from '@/lib/mfa.functions'
+import { countPendingRequests } from '@/lib/requests.functions'
 
 export const Route = createFileRoute('/admin')({
   head: () => ({
@@ -79,7 +103,20 @@ type Auth =
   | { phase: 'signed-out' }
   | { phase: 'invite'; token: string }
   | { phase: 'recovery' }
+  | { phase: 'mfa'; user: User }
   | { phase: 'signed-in'; user: User }
+
+/** Where a freshly authenticated user goes next: the e-mail code step (if enabled) or the panel. */
+async function resolveAuth(user: User): Promise<Auth> {
+  // If the status cannot be read, fail closed and ask for the code.
+  const status = await getMfaStatus().catch(() => ({
+    required: true,
+    verified: false,
+  }))
+  return status.required && !status.verified
+    ? { phase: 'mfa', user }
+    : { phase: 'signed-in', user }
+}
 
 function AdminPage() {
   const [auth, setAuth] = useState<Auth>({ phase: 'loading' })
@@ -101,15 +138,24 @@ function AdminPage() {
         toast.error('Link z wiadomości e-mail jest nieprawidłowy lub wygasł.')
       }
       const user = await getUser().catch(() => null)
-      if (active) {
-        setAuth(user ? { phase: 'signed-in', user } : { phase: 'signed-out' })
-      }
+      const next: Auth = user ? await resolveAuth(user) : { phase: 'signed-out' }
+      if (active) setAuth(next)
     }
     void init()
     return () => {
       active = false
     }
   }, [])
+
+  async function enter(user: User) {
+    setAuth(await resolveAuth(user))
+  }
+
+  async function signOut() {
+    await endMfaSession().catch(() => undefined)
+    await logout().catch(() => undefined)
+    setAuth({ phase: 'signed-out' })
+  }
 
   return (
     <div className="mx-auto max-w-[1062px] px-5 py-12">
@@ -121,39 +167,34 @@ function AdminPage() {
           <p className="text-muted-foreground">Wczytywanie…</p>
         )}
         {auth.phase === 'signed-out' && (
-          <LoginForm onDone={(user) => setAuth({ phase: 'signed-in', user })} />
+          <LoginForm onDone={(user) => void enter(user)} />
         )}
         {auth.phase === 'invite' && (
           <PasswordForm
             title="Ustaw hasło do konta administratora"
             onSubmit={(password) => acceptInvite(auth.token, password)}
-            onDone={(user) => setAuth({ phase: 'signed-in', user })}
+            onDone={(user) => void enter(user)}
           />
         )}
         {auth.phase === 'recovery' && (
           <PasswordForm
             title="Ustaw nowe hasło"
             onSubmit={(password) => updateUser({ password })}
-            onDone={(user) => setAuth({ phase: 'signed-in', user })}
+            onDone={(user) => void enter(user)}
+          />
+        )}
+        {auth.phase === 'mfa' && (
+          <MfaForm
+            user={auth.user}
+            onVerified={() => setAuth({ phase: 'signed-in', user: auth.user })}
+            onLogout={() => void signOut()}
           />
         )}
         {auth.phase === 'signed-in' && (
-          <SignedIn
-            user={auth.user}
-            onLogout={async () => {
-              await logout().catch(() => undefined)
-              setAuth({ phase: 'signed-out' })
-            }}
-          />
+          <SignedIn user={auth.user} onLogout={() => void signOut()} />
         )}
       </div>
     </div>
-  )
-}
-
-function Panel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border bg-white p-6 shadow-sm">{children}</div>
   )
 }
 
@@ -278,7 +319,7 @@ type Row = Awaited<ReturnType<typeof listPractitioners>>[number]
 function normalize(value: string) {
   return value
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/ł/gi, 'l')
     .toLowerCase()
 }
@@ -294,12 +335,91 @@ function matchesQuery(row: Row, query: string) {
       row.pwz,
       row.profession,
       row.specialization,
-      row.pesel, // null for kierownictwo, so they cannot search by PESEL
+      ENTRY_STATUSES[row.status],
+      row.entryNumber,
+      row.createdBy,
+      row.pesel,
     ]
       .filter(Boolean)
       .join(' '),
   )
   return words.every((word) => haystack.includes(word))
+}
+
+type SortKey = 'name' | 'pwz' | 'profession' | 'status' | 'date'
+type Sort = { key: SortKey; dir: 'asc' | 'desc' }
+
+const STATUS_STYLES: Record<EntryStatus, string> = {
+  active: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  suspended: 'bg-amber-50 text-amber-800 ring-amber-200',
+  expired: 'bg-red-50 text-red-700 ring-red-200',
+}
+
+function StatusBadge({ status }: { status: EntryStatus }) {
+  return (
+    <span
+      className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ring-1 ${STATUS_STYLES[status]}`}
+    >
+      {ENTRY_STATUSES[status]}
+    </span>
+  )
+}
+
+function compareRows(a: Row, b: Row, { key, dir }: Sort) {
+  let result: number
+  switch (key) {
+    case 'name':
+      result = `${a.lastName} ${a.firstName}`.localeCompare(
+        `${b.lastName} ${b.firstName}`,
+        'pl',
+      )
+      break
+    case 'pwz':
+      result = a.pwz.localeCompare(b.pwz)
+      break
+    case 'profession':
+      result = a.profession.localeCompare(b.profession, 'pl')
+      break
+    case 'status':
+      result = a.status.localeCompare(b.status)
+      break
+    default:
+      result = a.entryDate.localeCompare(b.entryDate)
+  }
+  return dir === 'asc' ? result : -result
+}
+
+function SortHead({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string
+  sortKey: SortKey
+  sort: Sort
+  onSort: (key: SortKey) => void
+}) {
+  const active = sort.key === sortKey
+  return (
+    <TableHead
+      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 hover:underline"
+      >
+        {label}
+        {active &&
+          (sort.dir === 'asc' ? (
+            <ArrowUp className="size-3" />
+          ) : (
+            <ArrowDown className="size-3" />
+          ))}
+      </button>
+    </TableHead>
+  )
 }
 
 function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
@@ -309,10 +429,19 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [rows, setRows] = useState<Row[] | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
   const [managementOpen, setManagementOpen] = useState(false)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [sealOpen, setSealOpen] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [showManagement, setShowManagement] = useState(false)
+  const [showTrash, setShowTrash] = useState(false)
+  const [showRequests, setShowRequests] = useState(false)
+  const [pendingRequests, setPendingRequests] = useState(0)
   const [query, setQuery] = useState('')
-  // Bumped after every change so an open audit log reloads itself.
+  const [professionFilter, setProfessionFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [authorFilter, setAuthorFilter] = useState('')
+  const [sort, setSort] = useState<Sort>({ key: 'date', dir: 'desc' })
+  // Bumped after every change so open panels (log, trash, accounts) reload themselves.
   const [logVersion, setLogVersion] = useState(0)
 
   const refresh = useCallback(async () => {
@@ -333,13 +462,62 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
     if (canAdd) void refresh()
   }, [canAdd, refresh])
 
-  const visible = rows ? rows.filter((row) => matchesQuery(row, query)) : []
+  // Number of requests waiting for an admin decision (shown on the "Wnioski" button).
+  useEffect(() => {
+    if (!isAdmin) return
+    let active = true
+    countPendingRequests()
+      .then((r) => {
+        if (active) setPendingRequests(r.pending)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [isAdmin, logVersion])
+
+  const professions = rows
+    ? [...new Set(rows.map((r) => r.profession))].sort((a, b) =>
+        a.localeCompare(b, 'pl'),
+      )
+    : []
+  const authors = rows
+    ? [...new Set(rows.flatMap((r) => (r.createdBy ? [r.createdBy] : [])))].sort()
+    : []
+  const filtering = Boolean(
+    query.trim() || professionFilter || statusFilter || authorFilter,
+  )
+  const visible = rows
+    ? rows
+        .filter(
+          (row) =>
+            matchesQuery(row, query) &&
+            (!professionFilter || row.profession === professionFilter) &&
+            (!statusFilter || row.status === statusFilter) &&
+            (!authorFilter || row.createdBy === authorFilter),
+        )
+        .sort((a, b) => compareRows(a, b, sort))
+    : []
+
+  function toggleSort(key: SortKey) {
+    setSort((current) =>
+      current.key === key
+        ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'date' ? 'desc' : 'asc' },
+    )
+  }
 
   async function remove(row: Row) {
-    if (!confirm(`Usunąć ${row.firstName} ${row.lastName} z rejestru?`)) return
+    if (
+      !confirm(
+        `Usunąć ${row.firstName} ${row.lastName} z rejestru? Wpis trafi do kosza i można go przywrócić przez ${TRASH_RETENTION_DAYS} dni.`,
+      )
+    ) {
+      return
+    }
     try {
       await deletePractitioner({ data: { id: row.id } })
-      toast.success('Wpis usunięty.')
+      toast.success('Wpis przeniesiony do kosza.')
       await refreshAll()
     } catch {
       toast.error('Nie udało się usunąć wpisu.')
@@ -352,10 +530,19 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
         <p className="text-sm text-muted-foreground">
           Zalogowano jako <strong className="text-foreground">{user.email}</strong>
         </p>
-        <Button variant="outline" size="sm" onClick={onLogout}>
-          <LogOut className="size-4" /> Wyloguj
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setPasswordOpen(true)}>
+            <KeyRound className="size-4" /> Zmień hasło
+          </Button>
+          <Button variant="outline" size="sm" onClick={onLogout}>
+            <LogOut className="size-4" /> Wyloguj
+          </Button>
+        </div>
       </div>
+      <ChangePasswordDialog
+        open={passwordOpen}
+        onClose={() => setPasswordOpen(false)}
+      />
 
       {isAdmin && (
         <div className="flex flex-wrap gap-2">
@@ -369,10 +556,26 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
             <Users className="size-4" /> Konta kierownictwa
           </Button>
           <Button
+            variant={showRequests ? 'default' : 'outline'}
+            onClick={() => setShowRequests((open) => !open)}
+          >
+            <Inbox className="size-4" /> Wnioski
+            {pendingRequests > 0 ? ` (${pendingRequests})` : ''}
+          </Button>
+          <Button
+            variant={showTrash ? 'default' : 'outline'}
+            onClick={() => setShowTrash((open) => !open)}
+          >
+            <Trash2 className="size-4" /> Kosz
+          </Button>
+          <Button
             variant={showLog ? 'default' : 'outline'}
             onClick={() => setShowLog((open) => !open)}
           >
             <ScrollText className="size-4" /> Dziennik zdarzeń
+          </Button>
+          <Button variant="outline" onClick={() => setSealOpen(true)}>
+            <Stamp className="size-4" /> Pieczęć
           </Button>
         </div>
       )}
@@ -382,13 +585,22 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
           onChanged={() => setLogVersion((version) => version + 1)}
         />
       )}
+      {isAdmin && showRequests && (
+        <RequestsPanel key={logVersion} onChanged={() => void refreshAll()} />
+      )}
+      {isAdmin && showTrash && (
+        <TrashPanel key={logVersion} onChanged={() => void refreshAll()} />
+      )}
       {isAdmin && showLog && <AuditLogPanel key={logVersion} />}
       {isAdmin && (
-        <ManagementDialog
-          open={managementOpen}
-          onClose={() => setManagementOpen(false)}
-          onCreated={() => setLogVersion((version) => version + 1)}
-        />
+        <>
+          <ManagementDialog
+            open={managementOpen}
+            onClose={() => setManagementOpen(false)}
+            onCreated={() => setLogVersion((version) => version + 1)}
+          />
+          <SealDialog open={sealOpen} onClose={() => setSealOpen(false)} />
+        </>
       )}
 
       {!canAdd ? (
@@ -402,31 +614,108 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
         </Panel>
       ) : (
         <>
-          <AddForm onAdded={refreshAll} limited={!isAdmin} />
+          {isAdmin ? (
+            <AddForm onAdded={refreshAll} />
+          ) : (
+            <>
+              <RequestForm
+                onSubmitted={() => setLogVersion((version) => version + 1)}
+              />
+              <MyRequestsPanel key={logVersion} />
+            </>
+          )}
           <Panel>
             <h2 className="text-lg font-semibold">
               Osoby w rejestrze
               {rows
-                ? query.trim()
+                ? filtering
                   ? ` (${visible.length} z ${rows.length})`
                   : ` (${rows.length})`
                 : ''}
             </h2>
             {rows && rows.length > 0 && (
-              <div className="relative mt-4">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type="search"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={
-                    isAdmin
-                      ? 'Szukaj pracownika: imię, nazwisko, PESEL, PWZ, zawód, specjalizacja…'
-                      : 'Szukaj pracownika: imię, nazwisko, PWZ, zawód, specjalizacja…'
-                  }
-                  aria-label="Szukaj pracownika"
-                  className="pl-9"
-                />
+              <div className="mt-4 space-y-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    type="search"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Szukaj pracownika: imię, nazwisko, PESEL, PWZ, zawód, specjalizacja…"
+                    aria-label="Szukaj pracownika"
+                    className="pl-9"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    value={professionFilter}
+                    onChange={(e) => setProfessionFilter(e.target.value)}
+                    className={filterSelectClass}
+                    aria-label="Filtruj po zawodzie"
+                  >
+                    <option value="">Wszystkie zawody</option>
+                    {professions.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className={filterSelectClass}
+                    aria-label="Filtruj po statusie"
+                  >
+                    <option value="">Wszystkie statusy</option>
+                    {ENTRY_STATUS_KEYS.map((k) => (
+                      <option key={k} value={k}>
+                        {ENTRY_STATUSES[k]}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={authorFilter}
+                    onChange={(e) => setAuthorFilter(e.target.value)}
+                    className={filterSelectClass}
+                    aria-label="Filtruj po osobie, która dodała wpis"
+                  >
+                    <option value="">Dodane przez: wszyscy</option>
+                    {authors.map((a) => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant={sort.key === 'date' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-9"
+                    onClick={() => toggleSort('date')}
+                  >
+                    Data wpisu
+                    {sort.key === 'date' &&
+                      (sort.dir === 'asc' ? (
+                        <ArrowUp className="size-3" />
+                      ) : (
+                        <ArrowDown className="size-3" />
+                      ))}
+                  </Button>
+                  {filtering && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-9"
+                      onClick={() => {
+                        setQuery('')
+                        setProfessionFilter('')
+                        setStatusFilter('')
+                        setAuthorFilter('')
+                      }}
+                    >
+                      Wyczyść filtry
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
             {rows === null ? (
@@ -440,12 +729,13 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Imię i nazwisko</TableHead>
-                      {isAdmin && <TableHead>PESEL</TableHead>}
-                      <TableHead>PWZ</TableHead>
-                      <TableHead>Zawód</TableHead>
+                      <SortHead label="Imię i nazwisko" sortKey="name" sort={sort} onSort={toggleSort} />
+                      <TableHead>PESEL</TableHead>
+                      <SortHead label="PWZ" sortKey="pwz" sort={sort} onSort={toggleSort} />
+                      <SortHead label="Zawód" sortKey="profession" sort={sort} onSort={toggleSort} />
                       <TableHead>Specjalizacja</TableHead>
-                      {isAdmin && <TableHead className="w-24" />}
+                      <SortHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+                      <TableHead className={isAdmin ? 'w-32' : 'w-14'} />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -453,40 +743,62 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">
                           {row.firstName} {row.lastName}
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            Nr {row.entryNumber} · {formatDate(row.entryDate)}
+                            {row.createdBy ? ` · dodał(a): ${row.createdBy}` : ''}
+                          </span>
                         </TableCell>
-                        {isAdmin && (
-                          <TableCell className="font-mono">{row.pesel}</TableCell>
-                        )}
+                        <TableCell className="font-mono">{row.pesel}</TableCell>
                         <TableCell className="font-mono">{row.pwz}</TableCell>
                         <TableCell>{row.profession}</TableCell>
                         <TableCell>{row.specialization}</TableCell>
-                        {isAdmin && (
-                          <TableCell className="whitespace-nowrap">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`Edytuj ${row.firstName} ${row.lastName}`}
-                              onClick={() => setEditing(row)}
+                        <TableCell>
+                          <StatusBadge status={row.status} />
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <Button
+                            asChild
+                            variant="ghost"
+                            size="icon"
+                            title="Plakietka"
+                          >
+                            <a
+                              href={`/plakietka/${row.id}`}
+                              target="_blank"
+                              rel="noopener"
+                              aria-label={`Plakietka: ${row.firstName} ${row.lastName}`}
                             >
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              aria-label={`Usuń ${row.firstName} ${row.lastName}`}
-                              onClick={() => remove(row)}
-                            >
-                              <Trash2 className="size-4 text-destructive" />
-                            </Button>
-                          </TableCell>
-                        )}
+                              <BadgeCheck className="size-4" />
+                            </a>
+                          </Button>
+                          {isAdmin && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Edytuj ${row.firstName} ${row.lastName}`}
+                                onClick={() => setEditing(row)}
+                              >
+                                <Pencil className="size-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Usuń ${row.firstName} ${row.lastName}`}
+                                onClick={() => remove(row)}
+                              >
+                                <Trash2 className="size-4 text-destructive" />
+                              </Button>
+                            </>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
                 {visible.length === 0 && (
                   <p className="mt-4 text-center text-muted-foreground">
-                    Brak osób pasujących do „{query.trim()}”.
+                    Brak osób pasujących do wybranych kryteriów.
                   </p>
                 )}
               </div>
@@ -505,11 +817,15 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   )
 }
 
+const filterSelectClass =
+  'h-9 rounded-md border border-input bg-white px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50'
+
 type ManagementRow = Awaited<ReturnType<typeof listManagement>>[number]
 
 function ManagementPanel({ onChanged }: { onChanged: () => void }) {
   const [rows, setRows] = useState<ManagementRow[] | null>(null)
   const [failed, setFailed] = useState(false)
+  const [resetTarget, setResetTarget] = useState<ManagementRow | null>(null)
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -557,6 +873,11 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
           Odśwież
         </Button>
       </div>
+      <ResetManagementPasswordDialog
+        target={resetTarget}
+        onClose={() => setResetTarget(null)}
+        onDone={onChanged}
+      />
       {rows === null ? (
         <p className="mt-4 text-muted-foreground">Wczytywanie…</p>
       ) : failed ? (
@@ -574,14 +895,22 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
             <TableHeader>
               <TableRow>
                 <TableHead>E-mail</TableHead>
-                <TableHead className="w-12" />
+                <TableHead className="w-24" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell className="font-medium">{row.email}</TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Ustaw nowe hasło dla ${row.email}`}
+                      onClick={() => setResetTarget(row)}
+                    >
+                      <KeyRound className="size-4" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -591,96 +920,6 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
                       <Trash2 className="size-4 text-destructive" />
                     </Button>
                   </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
-    </Panel>
-  )
-}
-
-type AuditRow = Awaited<ReturnType<typeof listAuditLog>>[number]
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleString('pl-PL', {
-    timeZone: 'Europe/Warsaw',
-    dateStyle: 'short',
-    timeStyle: 'medium',
-  })
-}
-
-function AuditLogPanel() {
-  const [rows, setRows] = useState<AuditRow[] | null>(null)
-  const [failed, setFailed] = useState(false)
-
-  const load = useCallback(async () => {
-    setFailed(false)
-    try {
-      setRows(await listAuditLog())
-    } catch {
-      setFailed(true)
-      setRows([])
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  return (
-    <Panel>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <ScrollText className="size-5" /> Dziennik zdarzeń
-        </h2>
-        <Button variant="outline" size="sm" onClick={() => void load()}>
-          Odśwież
-        </Button>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Kto, co i kiedy zrobił (ostatnie 300 zdarzeń, najnowsze na górze).
-      </p>
-      {rows === null ? (
-        <p className="mt-4 text-muted-foreground">Wczytywanie…</p>
-      ) : failed ? (
-        <p role="alert" className="mt-4 text-sm text-destructive">
-          Nie udało się wczytać dziennika zdarzeń.
-        </p>
-      ) : rows.length === 0 ? (
-        <p className="mt-4 text-muted-foreground">Brak zapisanych zdarzeń.</p>
-      ) : (
-        <div className="mt-4">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Kiedy</TableHead>
-                <TableHead>Kto</TableHead>
-                <TableHead>Akcja</TableHead>
-                <TableHead>Dotyczy</TableHead>
-                <TableHead>Szczegóły</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="whitespace-nowrap">
-                    {formatTime(row.createdAt)}
-                  </TableCell>
-                  <TableCell>
-                    {row.actor}
-                    <span className="block text-xs text-muted-foreground">
-                      {row.actorRole}
-                    </span>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {AUDIT_ACTION_LABELS[
-                      row.action as keyof typeof AUDIT_ACTION_LABELS
-                    ] ?? row.action}
-                  </TableCell>
-                  <TableCell>{row.target}</TableCell>
-                  <TableCell className="whitespace-normal">{row.details}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -741,9 +980,10 @@ function ManagementDialog({
         <DialogHeader>
           <DialogTitle>Dodaj konto kierownictwa</DialogTitle>
           <DialogDescription>
-            Tworzy konto z rolą kierownictwo: dodaje osoby do rejestru (jedną na
-            5 minut), nie może ich usuwać ani edytować. Przekaż osobie e-mail i
-            hasło początkowe.
+            Tworzy konto z rolą kierownictwo: składa wnioski o wpis (jeden na 5
+            minut, ze zrzutem ekranu; akceptuje je administrator), widzi PESEL
+            i tworzy plakietki, ale nie edytuje ani nie usuwa wpisów. Przekaż
+            osobie e-mail i hasło początkowe.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
@@ -800,6 +1040,7 @@ function EditDialog({
   const [pesel, setPesel] = useState('')
   const [pwz, setPwz] = useState('')
   const [specialization, setSpecialization] = useState('')
+  const [status, setStatus] = useState<EntryStatus>('active')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const paramedic = row ? isParamedic(row.profession) : false
@@ -809,6 +1050,7 @@ function EditDialog({
     setPesel(row?.pesel ?? '')
     setPwz(row?.pwz ?? '')
     setSpecialization(row?.rawSpecialization ?? '')
+    setStatus(row?.status ?? 'active')
     setError(null)
   }, [row])
 
@@ -832,6 +1074,7 @@ function EditDialog({
           pesel,
           pwz,
           specialization: paramedic ? undefined : specialization,
+          status,
         },
       })
       if (!result.ok) {
@@ -856,8 +1099,9 @@ function EditDialog({
             Edytuj wpis: {row?.firstName} {row?.lastName}
           </DialogTitle>
           <DialogDescription>
-            Możesz zmienić numer PESEL, specjalizację oraz ręcznie ustawić numer
-            PWZ.
+            Możesz zmienić numer PESEL, specjalizację i status wpisu oraz ręcznie
+            ustawić numer PWZ. Zawieszony lub nieaktywny wpis nie ma zaświadczenia, a
+            kod QR na plakietce pokaże „NIE”.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
@@ -906,6 +1150,21 @@ function EditDialog({
               />
             )}
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-status">Status wpisu</Label>
+            <select
+              id="edit-status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as EntryStatus)}
+              className={selectClass}
+            >
+              {ENTRY_STATUS_KEYS.map((k) => (
+                <option key={k} value={k}>
+                  {ENTRY_STATUSES[k]}
+                </option>
+              ))}
+            </select>
+          </div>
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -928,46 +1187,8 @@ function EditDialog({
 const selectClass =
   'h-9 w-full rounded-md border border-input bg-white px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50'
 
-function formatWait(seconds: number) {
-  const m = Math.floor(seconds / 60)
-  const sec = String(seconds % 60).padStart(2, '0')
-  return `${m}:${sec}`
-}
-
-function AddForm({
-  onAdded,
-  limited,
-}: {
-  onAdded: () => Promise<void>
-  /** Management accounts: one entry per MANAGEMENT_COOLDOWN_SECONDS. */
-  limited: boolean
-}) {
-  const [secondsLeft, setSecondsLeft] = useState(0)
-
-  useEffect(() => {
-    if (!limited) return
-    let active = true
-    getCooldown()
-      .then((r) => {
-        if (active) setSecondsLeft(r.secondsLeft)
-      })
-      .catch(() => undefined)
-    return () => {
-      active = false
-    }
-  }, [limited])
-
-  const waiting = secondsLeft > 0
-
-  useEffect(() => {
-    if (!waiting) return
-    const timer = setInterval(
-      () => setSecondsLeft((s) => (s > 0 ? s - 1 : 0)),
-      1000,
-    )
-    return () => clearInterval(timer)
-  }, [waiting])
-
+/** Admin only: adds a person directly (kierownictwo uses RequestForm instead). */
+function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
   const [pesel, setPesel] = useState('')
   const [profession, setProfession] = useState<string>(PROFESSIONS[0])
   const [pending, setPending] = useState(false)
@@ -978,7 +1199,6 @@ function AddForm({
     event.preventDefault()
     const form = event.currentTarget
     const fields = new FormData(form)
-    if (waiting) return
     if (!isPesel(pesel)) {
       setError('PESEL musi składać się z samych cyfr (co najmniej jednej).')
       return
@@ -999,10 +1219,8 @@ function AddForm({
       })
       if (!result.ok) {
         setError(result.error)
-        if (result.secondsLeft) setSecondsLeft(result.secondsLeft)
         return
       }
-      if (limited) setSecondsLeft(MANAGEMENT_COOLDOWN_SECONDS)
       toast.success(`Dodano do rejestru. Numer PWZ: ${result.pwz}`)
       form.reset()
       setPesel('')
@@ -1082,19 +1300,9 @@ function AddForm({
           </p>
         )}
         <div className="sm:col-span-2">
-          <Button type="submit" disabled={pending || waiting}>
-            {pending
-              ? 'Zapisywanie…'
-              : waiting
-                ? `Kolejną osobę możesz dodać za ${formatWait(secondsLeft)}`
-                : 'Dodaj do rejestru'}
+          <Button type="submit" disabled={pending}>
+            {pending ? 'Zapisywanie…' : 'Dodaj do rejestru'}
           </Button>
-          {limited && !waiting && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Konto kierownictwa może dodać jedną osobę na 5 minut i nie może
-              usuwać wpisów.
-            </p>
-          )}
         </div>
       </form>
     </Panel>

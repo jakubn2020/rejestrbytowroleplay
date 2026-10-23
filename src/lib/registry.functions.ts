@@ -1,25 +1,43 @@
-import { createMiddleware, createServerFn } from '@tanstack/react-start'
-import { admin, getUser } from '@netlify/identity'
-import { and, asc, desc, eq, ne, or, sql } from 'drizzle-orm'
+import { createServerFn } from '@tanstack/react-start'
+import { admin } from '@netlify/identity'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../../db'
+import { auditLog, practitioners, type Practitioner } from '../../db/schema'
+import { requireAdmin, requireStaff } from './auth-server'
+import { IN_TRASH, insertPractitioner } from './practitioners-server'
 import {
-  auditLog,
-  practitioners,
-  type Practitioner,
-} from '../../db/schema'
-import {
-  MANAGEMENT_COOLDOWN_SECONDS,
-  PESEL_MAX_LENGTH,
-  PROFESSIONS,
+  ENTRY_STATUSES,
+  ENTRY_STATUS_KEYS,
   ROLE_ADMIN,
   ROLE_MANAGEMENT,
+  TRASH_RETENTION_DAYS,
+  entryNumber,
   isParamedic,
-  pwzFromPesel,
-  type AuditAction,
+  type EntryStatus,
   type PublicEntry,
 } from './registry'
+import { peselSchema, practitionerInput } from './schemas'
+import { logEvent, lookupAllowed } from './security-server'
+
+/** Rows that are not in the trash. */
+const alive = isNull(practitioners.deletedAt)
+
+function toStatus(value: string): EntryStatus {
+  return value in ENTRY_STATUSES ? (value as EntryStatus) : 'active'
+}
 
 function toPublic(row: Practitioner): PublicEntry {
   return {
@@ -29,6 +47,9 @@ function toPublic(row: Practitioner): PublicEntry {
     profession: row.profession,
     specialization:
       isParamedic(row.profession) ? 'nd.' : row.specialization || 'brak',
+    status: toStatus(row.status),
+    entryNumber: entryNumber(row.id),
+    entryDate: row.createdAt.toISOString(),
   }
 }
 
@@ -44,11 +65,19 @@ export const searchRegistry = createServerFn({ method: 'GET' })
     const q = data.q.replace(/\s+/g, ' ')
 
     if (/^\d+$/.test(q)) {
+      if (!(await lookupAllowed())) {
+        return {
+          status: 'invalid',
+          message: 'Zbyt wiele zapytań. Spróbuj ponownie za minutę.',
+        }
+      }
       // A digits-only query can be a PESEL (any length) or a 7-digit PWZ.
       const rows = await db
         .select()
         .from(practitioners)
-        .where(or(eq(practitioners.pesel, q), eq(practitioners.pwz, q)))
+        .where(
+          and(alive, or(eq(practitioners.pesel, q), eq(practitioners.pwz, q))),
+        )
         .orderBy(asc(practitioners.lastName))
       return {
         status: 'ok',
@@ -69,155 +98,55 @@ export const searchRegistry = createServerFn({ method: 'GET' })
       .select()
       .from(practitioners)
       .where(
-        or(
-          sql`lower(${practitioners.firstName} || ' ' || ${practitioners.lastName}) = ${needle}`,
-          sql`lower(${practitioners.lastName} || ' ' || ${practitioners.firstName}) = ${needle}`,
+        and(
+          alive,
+          or(
+            sql`lower(${practitioners.firstName} || ' ' || ${practitioners.lastName}) = ${needle}`,
+            sql`lower(${practitioners.lastName} || ' ' || ${practitioners.firstName}) = ${needle}`,
+          ),
         ),
       )
       .orderBy(asc(practitioners.lastName))
     return { status: 'ok', mode: 'name', entries: rows.map(toPublic) }
   })
 
-/** Lets `admin` and `kierownictwo` through; exposes who they are and whether they are admin. */
-const requireStaff = createMiddleware({ type: 'function' }).server(
-  async ({ next }) => {
-    const user = await getUser()
-    const roles = user?.roles ?? []
-    const isAdmin = roles.includes(ROLE_ADMIN)
-    if (!user || (!isAdmin && !roles.includes(ROLE_MANAGEMENT))) {
-      throw new Error('Brak uprawnień')
-    }
-    const identity = (user.email ?? user.id).toLowerCase()
-    return next({ context: { user, isAdmin, identity } })
-  },
-)
-
-/** Admin only (e.g. deleting entries). `kierownictwo` is deliberately not accepted. */
-const requireAdmin = createMiddleware({ type: 'function' }).server(
-  async ({ next }) => {
-    const user = await getUser()
-    if (!user?.roles?.includes(ROLE_ADMIN)) {
-      throw new Error('Brak uprawnień administratora')
-    }
-    const identity = (user.email ?? user.id).toLowerCase()
-    return next({ context: { user, identity } })
-  },
-)
-
-/** Best-effort audit trail: a logging failure must never undo or block the action itself. */
-async function logEvent(entry: {
-  actor: string
-  actorRole: string
-  action: AuditAction
-  target?: string
-  details?: string
-}) {
-  try {
-    await db.insert(auditLog).values(entry)
-  } catch (error) {
-    console.error('Nie udało się zapisać w dzienniku zdarzeń', error)
-  }
-}
-
-/** Seconds a `kierownictwo` account still has to wait before adding another entry. */
-async function cooldownLeft(identity: string): Promise<number> {
-  // Computed in SQL so both timestamps use the database clock and time zone.
-  const [last] = await db
-    .select({
-      secondsAgo: sql<string>`extract(epoch from (now() - ${practitioners.createdAt}))`,
-    })
-    .from(practitioners)
-    .where(eq(practitioners.createdBy, identity))
-    .orderBy(desc(practitioners.createdAt))
-    .limit(1)
-  if (!last) return 0
-  const left = MANAGEMENT_COOLDOWN_SECONDS - Number(last.secondsAgo)
-  return left > 0 ? Math.ceil(left) : 0
-}
-
-export const getCooldown = createServerFn({ method: 'GET' })
-  .middleware([requireStaff])
-  .handler(async ({ context }) => ({
-    secondsLeft: context.isAdmin ? 0 : await cooldownLeft(context.identity),
-  }))
+// ---------------------------------------------------------------------------
+// Registry entries
+// ---------------------------------------------------------------------------
 
 export const listPractitioners = createServerFn({ method: 'GET' })
   .middleware([requireStaff])
-  .handler(async ({ context }) => {
+  .handler(async () => {
     const rows = await db
       .select()
       .from(practitioners)
+      .where(alive)
       .orderBy(desc(practitioners.createdAt))
     return rows.map((row) => ({
       id: row.id,
-      // PESEL is only ever sent to admins.
-      pesel: context.isAdmin ? row.pesel : null,
+      // PESEL is sent to staff only (admin and kierownictwo), never to the public.
+      pesel: row.pesel,
       // Raw value (or null) so the admin edit form can be prefilled.
       rawSpecialization: row.specialization,
+      createdBy: row.createdBy,
       ...toPublic(row),
     }))
   })
 
-const practitionerInput = z
-  .object({
-    pesel: z
-      .string()
-      .trim()
-      .min(1, 'PESEL nie może być pusty')
-      .max(PESEL_MAX_LENGTH, `PESEL może mieć najwyżej ${PESEL_MAX_LENGTH} cyfr`)
-      .regex(/^\d+$/, 'PESEL może składać się tylko z cyfr'),
-    firstName: z.string().trim().min(1).max(80),
-    lastName: z.string().trim().min(1).max(80),
-    profession: z.enum(PROFESSIONS),
-    specialization: z.string().trim().max(160).optional(),
-  })
-  .transform((value) => ({
-    ...value,
-    specialization:
-      isParamedic(value.profession) ? null : value.specialization || null,
-  }))
+export type AddResult = { ok: true; pwz: string } | { ok: false; error: string }
 
-export type AddResult =
-  | { ok: true; pwz: string }
-  | { ok: false; error: string; secondsLeft?: number }
-
+/** Admin only: adds a person directly. `kierownictwo` submits a request instead (see requests.functions.ts). */
 export const addPractitioner = createServerFn({ method: 'POST' })
-  .middleware([requireStaff])
+  .middleware([requireAdmin])
   .validator(practitionerInput)
   .handler(async ({ data, context }): Promise<AddResult> => {
-    if (!context.isAdmin) {
-      const secondsLeft = await cooldownLeft(context.identity)
-      if (secondsLeft > 0) {
-        return {
-          ok: false,
-          secondsLeft,
-          error: 'Kierownictwo może dodać jedną osobę na 5 minut. Spróbuj ponownie później.',
-        }
-      }
-    }
-    const pwz = pwzFromPesel(data.pesel)
-    const [clash] = await db
-      .select({ pesel: practitioners.pesel, pwz: practitioners.pwz })
-      .from(practitioners)
-      .where(or(eq(practitioners.pesel, data.pesel), eq(practitioners.pwz, pwz)))
-      .limit(1)
-    if (clash) {
-      return {
-        ok: false,
-        error:
-          clash.pesel === data.pesel
-            ? 'Osoba o tym numerze PESEL jest już w rejestrze.'
-            : `Numer PWZ ${pwz} jest już przypisany do innej osoby.`,
-      }
-    }
-    await db
-      .insert(practitioners)
-      .values({ ...data, pwz, createdBy: context.identity })
+    const result = await insertPractitioner(data, context.identity)
+    if (!result.ok) return result
     await logEvent({
       actor: context.identity,
-      actorRole: context.isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
+      actorRole: ROLE_ADMIN,
       action: 'add',
-      target: `${data.firstName} ${data.lastName} (PWZ ${pwz})`,
+      target: `${data.firstName} ${data.lastName} (PWZ ${result.pwz})`,
       details: [
         `Zawód: ${data.profession}`,
         data.specialization ? `specjalizacja: ${data.specialization}` : null,
@@ -225,27 +154,23 @@ export const addPractitioner = createServerFn({ method: 'POST' })
         .filter(Boolean)
         .join(', '),
     })
-    return { ok: true, pwz }
+    return result
   })
 
 const updateInput = z.object({
   id: z.number().int().positive(),
-  pesel: z
-    .string()
-    .trim()
-    .min(1, 'PESEL nie może być pusty')
-    .max(PESEL_MAX_LENGTH, `PESEL może mieć najwyżej ${PESEL_MAX_LENGTH} cyfr`)
-    .regex(/^\d+$/, 'PESEL może składać się tylko z cyfr'),
+  pesel: peselSchema,
   pwz: z
     .string()
     .trim()
     .regex(/^\d{7}$/, 'Numer PWZ musi składać się z 7 cyfr'),
   specialization: z.string().trim().max(160).optional(),
+  status: z.enum(ENTRY_STATUS_KEYS),
 })
 
 export type UpdateResult = { ok: true } | { ok: false; error: string }
 
-/** Admin only: change PESEL, set PWZ by hand and edit the specialization of an existing entry. */
+/** Admin only: change PESEL, set PWZ by hand, edit the specialization and the status of an existing entry. */
 export const updatePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(updateInput)
@@ -253,13 +178,16 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
     const [existing] = await db
       .select()
       .from(practitioners)
-      .where(eq(practitioners.id, data.id))
+      .where(and(eq(practitioners.id, data.id), alive))
       .limit(1)
     if (!existing) {
       return { ok: false, error: 'Nie znaleziono wpisu (mógł zostać usunięty).' }
     }
     const [clash] = await db
-      .select({ pesel: practitioners.pesel })
+      .select({
+        pesel: practitioners.pesel,
+        deletedAt: practitioners.deletedAt,
+      })
       .from(practitioners)
       .where(
         and(
@@ -269,6 +197,7 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
       )
       .limit(1)
     if (clash) {
+      if (clash.deletedAt) return { ok: false, error: IN_TRASH }
       return {
         ok: false,
         error:
@@ -283,7 +212,12 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
       : data.specialization || null
     await db
       .update(practitioners)
-      .set({ pesel: data.pesel, pwz: data.pwz, specialization })
+      .set({
+        pesel: data.pesel,
+        pwz: data.pwz,
+        specialization,
+        status: data.status,
+      })
       .where(eq(practitioners.id, data.id))
 
     const changes: string[] = []
@@ -298,6 +232,11 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
         `specjalizacja: ${existing.specialization ?? 'brak'} → ${specialization ?? 'brak'}`,
       )
     }
+    if (toStatus(existing.status) !== data.status) {
+      changes.push(
+        `status: ${ENTRY_STATUSES[toStatus(existing.status)]} → ${ENTRY_STATUSES[data.status]}`,
+      )
+    }
     await logEvent({
       actor: context.identity,
       actorRole: ROLE_ADMIN,
@@ -308,6 +247,7 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
     return { ok: true }
   })
 
+/** Admin only: moves an entry to the trash (it can be restored for TRASH_RETENTION_DAYS days). */
 export const deletePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(z.object({ id: z.number().int().positive() }))
@@ -315,20 +255,169 @@ export const deletePractitioner = createServerFn({ method: 'POST' })
     const [existing] = await db
       .select()
       .from(practitioners)
-      .where(eq(practitioners.id, data.id))
+      .where(and(eq(practitioners.id, data.id), alive))
       .limit(1)
-    await db.delete(practitioners).where(eq(practitioners.id, data.id))
-    if (existing) {
-      await logEvent({
-        actor: context.identity,
-        actorRole: ROLE_ADMIN,
-        action: 'delete',
-        target: `${existing.firstName} ${existing.lastName} (PWZ ${existing.pwz})`,
-        details: `Zawód: ${existing.profession}`,
-      })
-    }
+    if (!existing) return { ok: true }
+    await db
+      .update(practitioners)
+      .set({ deletedAt: sql`now()` })
+      .where(eq(practitioners.id, data.id))
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'delete',
+      target: `${existing.firstName} ${existing.lastName} (PWZ ${existing.pwz})`,
+      details: `Zawód: ${existing.profession}. Przeniesiono do kosza (${TRASH_RETENTION_DAYS} dni na przywrócenie)`,
+    })
     return { ok: true }
   })
+
+// ---------------------------------------------------------------------------
+// Badges (staff only) and the public verification behind their QR code
+// ---------------------------------------------------------------------------
+
+/** Staff only: everything printed on a badge (including the PESEL). */
+export const getBadge = createServerFn({ method: 'GET' })
+  .middleware([requireStaff])
+  .validator(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ data }) => {
+    const [row] = await db
+      .select()
+      .from(practitioners)
+      .where(and(eq(practitioners.id, data.id), alive))
+      .limit(1)
+    if (!row) return null
+    return {
+      id: row.id,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      pesel: row.pesel,
+      pwz: row.pwz,
+      profession: row.profession,
+      status: toStatus(row.status),
+      entryNumber: entryNumber(row.id),
+    }
+  })
+
+export type VerifyResult =
+  | {
+      status: 'valid'
+      firstName: string
+      lastName: string
+      profession: string
+      pwz: string
+    }
+  | { status: 'suspended' | 'inactive' | 'not_found' | 'limited'; pwz: string }
+
+/** Public: is the entry behind a badge real and current? Only active entries are "valid". */
+export const verifyEntry = createServerFn({ method: 'GET' })
+  .validator(z.object({ pwz: z.string().regex(/^\d{7}$/) }))
+  .handler(async ({ data }): Promise<VerifyResult> => {
+    if (!(await lookupAllowed())) return { status: 'limited', pwz: data.pwz }
+    const [row] = await db
+      .select()
+      .from(practitioners)
+      .where(and(eq(practitioners.pwz, data.pwz), alive))
+      .limit(1)
+    if (!row) return { status: 'not_found', pwz: data.pwz }
+    const status = toStatus(row.status)
+    if (status === 'suspended') return { status: 'suspended', pwz: data.pwz }
+    if (status === 'expired') return { status: 'inactive', pwz: data.pwz }
+    return {
+      status: 'valid',
+      firstName: row.firstName,
+      lastName: row.lastName,
+      profession: row.profession,
+      pwz: row.pwz,
+    }
+  })
+
+// ---------------------------------------------------------------------------
+// Trash
+// ---------------------------------------------------------------------------
+
+/** Admin only: entries in the trash. Entries older than the retention period are purged first. */
+export const listTrash = createServerFn({ method: 'GET' })
+  .middleware([requireAdmin])
+  .handler(async () => {
+    await db
+      .delete(practitioners)
+      .where(
+        and(
+          isNotNull(practitioners.deletedAt),
+          lt(
+            practitioners.deletedAt,
+            sql`now() - ${sql.raw(`interval '${TRASH_RETENTION_DAYS} days'`)}`,
+          ),
+        ),
+      )
+    const rows = await db
+      .select()
+      .from(practitioners)
+      .where(isNotNull(practitioners.deletedAt))
+      .orderBy(desc(practitioners.deletedAt))
+    return rows.map((row) => {
+      const deletedAt = row.deletedAt ?? new Date()
+      const daysGone = Math.floor((Date.now() - deletedAt.getTime()) / 86_400_000)
+      return {
+        id: row.id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        pwz: row.pwz,
+        profession: row.profession,
+        deletedAt: deletedAt.toISOString(),
+        daysLeft: Math.max(0, TRASH_RETENTION_DAYS - daysGone),
+      }
+    })
+  })
+
+export const restorePractitioner = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ data, context }) => {
+    const [existing] = await db
+      .select()
+      .from(practitioners)
+      .where(and(eq(practitioners.id, data.id), isNotNull(practitioners.deletedAt)))
+      .limit(1)
+    if (!existing) return { ok: false as const, error: 'Nie znaleziono wpisu w koszu.' }
+    await db
+      .update(practitioners)
+      .set({ deletedAt: null })
+      .where(eq(practitioners.id, data.id))
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'restore',
+      target: `${existing.firstName} ${existing.lastName} (PWZ ${existing.pwz})`,
+    })
+    return { ok: true as const }
+  })
+
+/** Permanently deletes an entry that is already in the trash. */
+export const purgePractitioner = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ data, context }) => {
+    const [existing] = await db
+      .select()
+      .from(practitioners)
+      .where(and(eq(practitioners.id, data.id), isNotNull(practitioners.deletedAt)))
+      .limit(1)
+    if (!existing) return { ok: false as const, error: 'Nie znaleziono wpisu w koszu.' }
+    await db.delete(practitioners).where(eq(practitioners.id, data.id))
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'purge',
+      target: `${existing.firstName} ${existing.lastName} (PWZ ${existing.pwz})`,
+    })
+    return { ok: true as const }
+  })
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
 
 /** Admin only: the audit log, newest first. */
 export const listAuditLog = createServerFn({ method: 'GET' })
@@ -349,6 +438,10 @@ export const listAuditLog = createServerFn({ method: 'GET' })
       details: row.details,
     }))
   })
+
+// ---------------------------------------------------------------------------
+// kierownictwo accounts (Netlify Identity)
+// ---------------------------------------------------------------------------
 
 /** Admin only: Identity accounts that have the `kierownictwo` role (and are not admins). */
 export const listManagement = createServerFn({ method: 'GET' })
@@ -398,6 +491,42 @@ export const deleteManagement = createServerFn({ method: 'POST' })
     return { ok: true }
   })
 
+const passwordSchema = z
+  .string()
+  .min(8, 'Hasło musi mieć co najmniej 8 znaków')
+  .max(200)
+
+export type SetPasswordResult = { ok: true } | { ok: false; error: string }
+
+/** Admin only: sets a new password for a `kierownictwo` account (admin accounts are refused). */
+export const setManagementPassword = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(
+    z.object({ id: z.string().min(1).max(100), password: passwordSchema }),
+  )
+  .handler(async ({ data, context }): Promise<SetPasswordResult> => {
+    let email = data.id
+    try {
+      const target = await admin.getUser(data.id)
+      const roles = target.roles ?? []
+      if (!roles.includes(ROLE_MANAGEMENT) || roles.includes(ROLE_ADMIN)) {
+        return { ok: false, error: 'To konto nie jest kontem kierownictwa.' }
+      }
+      email = target.email ?? target.id
+      await admin.updateUser(data.id, { password: data.password })
+    } catch {
+      return { ok: false, error: 'Nie udało się ustawić hasła.' }
+    }
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'reset_password',
+      target: email,
+      details: 'Hasło ustawione przez administratora',
+    })
+    return { ok: true }
+  })
+
 const managementInput = z.object({
   email: z
     .string()
@@ -405,10 +534,7 @@ const managementInput = z.object({
     .toLowerCase()
     .email('Podaj poprawny adres e-mail')
     .max(200),
-  password: z
-    .string()
-    .min(8, 'Hasło musi mieć co najmniej 8 znaków')
-    .max(200),
+  password: passwordSchema,
 })
 
 export type AddManagementResult =

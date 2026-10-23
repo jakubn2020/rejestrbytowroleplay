@@ -31,9 +31,27 @@ Migracje bazy znajdują się w `netlify/database/migrations/` i są stosowane au
 
 ## Role
 
-- `admin` – dodaje i usuwa osoby bez ograniczeń, widzi PESEL oraz może edytować PESEL i specjalizację oraz ręcznie zmieniać numer PWZ już dodanych wpisów (ikona ołówka w tabeli; PWZ musi mieć 7 cyfr i być unikalny). Tylko `admin` widzi też przyciski „Dodaj kierownictwo” (tworzy konto z rolą `kierownictwo`: e-mail + hasło początkowe) „Konta kierownictwa” (lista kont z możliwością usunięcia; kont admina nie da się tu usunąć) i „Dziennik zdarzeń” (kto, co i kiedy dodał, edytował lub usunął oraz kiedy utworzono konto kierownictwa).
-- `kierownictwo` – może dodać jedną osobę na 5 minut (limit liczony osobno dla każdego konta, po stronie serwera), nie może usuwać wpisów i nie widzi numerów PESEL.
+- `admin` – dodaje osoby bezpośrednio, usuwa je (do kosza na 30 dni), edytuje PESEL, specjalizację, status i ręcznie ustawia numer PWZ (PWZ musi mieć 7 cyfr i być unikalny). Tylko `admin` widzi przyciski: „Dodaj kierownictwo”, „Konta kierownictwa” (lista, reset hasła, usuwanie), „Wnioski” (akceptacja lub odrzucenie wniosków kierownictwa), „Kosz”, „Dziennik zdarzeń” (z filtrami i eksportem CSV) i „Pieczęć” (wgranie obrazu pieczęci na zaświadczeniach).
+- `kierownictwo` – widzi numery PESEL, wyszukuje pracowników i tworzy plakietki. Nie dodaje osób bezpośrednio: składa **wniosek** (imię, nazwisko, PESEL, zawód i **zrzut ekranu wiadomości**, w której ta osoba prosi o wpis), najwyżej jeden na 5 minut (limit liczony po stronie serwera). Wniosek akceptuje lub odrzuca admin, oglądając zrzut ekranu; po akceptacji wpis powstaje automatycznie (w rejestrze figuruje jako dodany przez osobę z kierownictwa). Kierownictwo nie edytuje i nie usuwa wpisów.
 
 Role nadaje się w ustawieniach Netlify Identity (Users → użytkownik → Roles).
 
-Tabela „Osoby w rejestrze” w panelu ma wyszukiwarkę pracowników (imię, nazwisko, PWZ, zawód, specjalizacja; `admin` może też szukać po PESEL). Działa dla obu ról, ignoruje wielkość liter i polskie znaki, a słowa można wpisać w dowolnej kolejności.
+## Status wpisu
+
+Każdy wpis jest fabrycznie **aktywny**. Admin może ręcznie zmienić go na **zawieszony** lub **nieaktywny** (okno edycji). Taki wpis jest pokazywany w wyszukiwarce z odpowiednią etykietą, nie ma zaświadczenia, a kod QR na plakietce pokazuje „NIE”.
+
+## Plakietki i kod QR
+
+Przy każdej osobie w panelu jest ikona plakietki (`/plakietka/<id>`, dostępna tylko po zalogowaniu jako `kierownictwo` lub `admin`). Plakietka (85,6 × 54 mm, do wydruku) zawiera imię i nazwisko, tytuł zawodowy (lekarz, pielęgniarz albo ratownik medyczny), PESEL i numer seryjny, którym jest numer PWZ. Zamiast zdjęcia jest kod QR prowadzący do publicznej strony `/weryfikacja/<PWZ>`, która pokazuje tylko duże **TAK** albo **NIE** (czy wpis jest prawdziwy i aktualny) oraz – przy „TAK” – imię, nazwisko i zawód. Kod QR jest generowany w przeglądarce własnym kodem (`src/lib/qr.ts`), bez zewnętrznych usług.
+
+## Zaświadczenie o posiadaniu tytułu (PDF)
+
+Dla aktywnych wpisów strona wyszukiwarki pokazuje przycisk „Zaświadczenie o posiadaniu tytułu (PDF)” (`/zaswiadczenie/<PWZ>`, drukowanie lub zapis do PDF z przeglądarki). Wystawcą jest Wojewódzka Stacja Pogotowia Ratunkowego „Medicare” w Milanowie. Pieczęć wgrywa admin przyciskiem „Pieczęć” (PNG, JPEG lub WebP do ok. 500 KB; najlepiej PNG z przezroczystym tłem).
+
+## Bezpieczeństwo
+
+- Logowanie dwuetapowe: po haśle przychodzi e-mail z kodem (ważny 10 minut). Włącza się samo, gdy w Netlify ustawisz zmienną `RESEND_API_KEY` (konto na resend.com); opcjonalnie `EMAIL_FROM` (nadawca). Bez klucza kod nie jest wymagany, żeby nikogo nie zablokować.
+- Wyszukiwanie po liczbach (PESEL/PWZ) i zaświadczenia/weryfikacje mają limit zapytań na adres IP.
+- Każda zmiana trafia do dziennika zdarzeń (tylko admin).
+
+Tabela „Osoby w rejestrze” ma wyszukiwarkę pracowników (imię, nazwisko, PESEL, PWZ, zawód, specjalizacja), filtry, sortowanie i działa dla obu ról; ignoruje wielkość liter i polskie znaki, a słowa można wpisać w dowolnej kolejności.
