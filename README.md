@@ -47,7 +47,21 @@ Przy każdej osobie w panelu jest ikona plakietki (`/plakietka/<id>`, dostępna 
 ## Bezpieczeństwo
 
 - Logowanie dwuetapowe: po haśle przychodzi e-mail z kodem (ważny 10 minut). Włącza się samo, gdy w Netlify ustawisz zmienną `RESEND_API_KEY` (konto na resend.com); opcjonalnie `EMAIL_FROM` (nadawca). Bez klucza kod nie jest wymagany, żeby nikogo nie zablokować.
-- Wyszukiwanie po liczbach (PESEL/PWZ) i weryfikacje QR mają limit zapytań na adres IP.
+- **Ochrona przed zgadywaniem:** po 8 nieudanych logowaniach z jednego adresu IP formularz logowania blokuje ten adres na 15 minut (blokada działa w formularzu panelu; hasła sprawdza Netlify Identity, które ma własne limity). Kod z e-maila: 5 błędnych prób unieważnia kod, a po 3 takich seriach konto nie dostaje nowego kodu przez 15 minut. Wyszukiwanie po numerach (PESEL/PWZ) i weryfikacje QR mają limit 15 zapytań na minutę z jednego adresu.
+- **PESEL jest ukryty w tabeli:** lista nie zawiera numerów PESEL. Odsłonięcie jednego (oko w tabeli, edycja wpisu, plakietka) jest zapisywane w dzienniku zdarzeń; po 30 sekundach numer znów się ukrywa. Wyszukiwanie po PESEL działa po stronie serwera.
+- **Alerty bezpieczeństwa** (przycisk „Alerty” dla adminów, z licznikiem): wiele nieudanych logowań z jednego adresu lub na jedno konto, zgadywanie kodu z e-maila, przekroczenie limitu zapytań o numery, masowe odsłanianie PESEL (15 w 10 minut) i logowanie z nowego adresu IP. Przy ustawionym `RESEND_API_KEY` alerty są też wysyłane e-mailem do adminów.
+- **Urządzenia:** przycisk „Urządzenia” pokazuje przeglądarki zalogowane na koncie (z adresem IP), pozwala wylogować każdą z nich albo wszystkie naraz. Wylogowane urządzenie od razu traci dostęp do panelu.
 - Każda zmiana trafia do dziennika zdarzeń (tylko admin).
+
+## Powiadomienia
+
+Panel adminów sprawdza co minutę, czy są nowe wnioski, zgłoszenia albo alerty (liczniki na przyciskach i komunikat). Przy ustawionym `RESEND_API_KEY` admini dostają też e-mail o nowym wniosku, zgłoszeniu i alercie, a kierownictwo o decyzji w sprawie wniosku.
+
+## Strony publiczne
+
+- `/jak-to-dziala` – krótka instrukcja i FAQ.
+- `/zglos-blad` – formularz zgłaszania błędów w rejestrze (limit 3 zgłoszeń na godzinę z jednego adresu); zgłoszenia czytają admini w panelu („Zgłoszenia”).
+- Strona główna pokazuje liczbę aktywnych lekarzy, pielęgniarzy i ratowników medycznych.
+- Przełącznik trybu jasnego i ciemnego jest w nagłówku (wybór zapamiętuje przeglądarka).
 
 Tabela „Osoby w rejestrze” ma wyszukiwarkę pracowników (imię, nazwisko, PESEL, PWZ, zawód, specjalizacja), filtry, sortowanie i działa dla obu ról; ignoruje wielkość liter i polskie znaki, a słowa można wpisać w dowolnej kolejności.

@@ -1,4 +1,4 @@
-import { integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
+import { boolean, integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
 
 export const practitioners = pgTable('practitioners', {
   id: serial().primaryKey(),
@@ -66,6 +66,38 @@ export const mfaSessions = pgTable('mfa_sessions', {
   tokenHash: text('token_hash').primaryKey(),
   identity: text().notNull(),
   expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  ip: text(),
+  userAgent: text('user_agent'),
+})
+
+/**
+ * Security trail: failed logins, rate-limit hits, PESEL reveals, new-address logins …
+ * Rows with `isAlert` are shown to admins as alerts until acknowledged.
+ */
+export const securityEvents = pgTable('security_events', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  kind: text().notNull(),
+  identity: text(),
+  ip: text(),
+  details: text(),
+  isAlert: boolean('is_alert').notNull().default(false),
+  acknowledged: boolean().notNull().default(false),
+})
+
+/** Public reports of mistakes in the registry. */
+export const reports = pgTable('reports', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  /** Which entry the report is about (PWZ and/or name, free text). */
+  subject: text().notNull(),
+  message: text().notNull(),
+  contact: text(),
+  /** 'open' | 'done' */
+  status: text().notNull().default('open'),
+  handledBy: text('handled_by'),
+  handledAt: timestamp('handled_at'),
 })
 
 /** A kierownictwo request to add a person; an admin approves or rejects it (with a screenshot as proof). */

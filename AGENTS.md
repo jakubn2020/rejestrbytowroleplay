@@ -153,3 +153,11 @@ Set the product's name and description in `src/routes/__root.tsx`:
 - `siteDescription` is the meta description and the description shown when the link is shared.
 
 Then replace the placeholder heading and text in `src/routes/index.tsx`.
+
+## Security, sessions, alerts (added later)
+
+- Every panel server function is behind `requireStaff` / `requireAdmin`, which require a panel session cookie (`rejestr_mfa`, hash in `mfa_sessions`, with ip / user agent). The session is created by `createSession` in `src/lib/security-server.ts` (after the e-mail code, or via `startPlainSession` right after a password login when e-mail is not configured). `listMySessions` / `revokeSession` / `revokeAllSessions` live in `src/lib/mfa.functions.ts`.
+- `security_events` holds failed logins, lockouts, logins, PESEL views and alerts (`is_alert`). Use `raiseAlert` (dedupe window, e-mails admins through `notifyAdmins`) from server code. Login brute-force guard: `src/lib/login-guard.functions.ts` (client-side gate in the login form; per-IP block, per-account alert only).
+- The list endpoint `listPractitioners` does not return PESEL; use `revealPesel` (audited via `logPeselView`) and `findPeselMatches` (server-side PESEL search). `getBadge` also logs a PESEL view.
+- Public reports: `src/lib/reports.functions.ts` + routes `zglos-blad` and `jak-to-dziala`; admin counts for toolbar badges: `getAdminCounts` in `src/lib/alerts.functions.ts`.
+- Dark mode: class `dark` on `<html>` set by an inline script in `src/routes/__root.tsx` and toggled in `SiteHeader`; fixed light colours are overridden in `src/styles.css` (`@media screen`).

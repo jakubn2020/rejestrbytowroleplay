@@ -18,6 +18,8 @@ import {
   claimCooldown,
   cooldownLeft,
   logEvent,
+  notifyAdmins,
+  notifyUser,
   releaseCooldown,
 } from './security-server'
 
@@ -115,6 +117,10 @@ export const submitRequest = createServerFn({ method: 'POST' })
       target: `${person.firstName} ${person.lastName} (PESEL ${person.pesel})`,
       details: `Zawód: ${person.profession}`,
     })
+    await notifyAdmins(
+      'Nowy wniosek o wpis do rejestru',
+      `${context.identity} złożył(a) wniosek o wpis: ${person.firstName} ${person.lastName} (${person.profession}). Sprawdź zrzut ekranu i zaakceptuj lub odrzuć wniosek.`,
+    )
     return { ok: true }
   })
 
@@ -241,6 +247,11 @@ export const decideRequest = createServerFn({ method: 'POST' })
         target: `${label} (PWZ ${result.pwz})`,
         details: `Wniosek złożony przez ${claimed.requestedBy}`,
       })
+      await notifyUser(
+        claimed.requestedBy,
+        'Wniosek zaakceptowany',
+        `Twój wniosek o wpis ${label} został zaakceptowany. Numer PWZ: ${result.pwz}.`,
+      )
       return { ok: true }
     }
 
@@ -256,5 +267,10 @@ export const decideRequest = createServerFn({ method: 'POST' })
         .filter(Boolean)
         .join(', '),
     })
+    await notifyUser(
+      claimed.requestedBy,
+      'Wniosek odrzucony',
+      `Twój wniosek o wpis ${label} został odrzucony.${data.note ? ` Powód: ${data.note}` : ''}`,
+    )
     return { ok: true }
   })

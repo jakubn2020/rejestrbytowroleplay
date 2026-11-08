@@ -46,6 +46,13 @@ export const Route = createRootRoute({
         content: 'summary_large_image',
       },
     ],
+    scripts: [
+      {
+        // Sets the saved (or system) colour scheme before the first paint.
+        children:
+          "try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}",
+      },
+    ],
     links: [
       { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
       {
@@ -65,7 +72,7 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pl">
+    <html lang="pl" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>

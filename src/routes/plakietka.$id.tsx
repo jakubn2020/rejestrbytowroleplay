@@ -138,7 +138,7 @@ function BadgeView({ badge }: { badge: Badge }) {
           <div className="flex h-full flex-col p-[3mm]">
             <div className="flex gap-[3mm]">
               <div className="w-[26mm] shrink-0">
-                <div className="rounded-[1mm] bg-white p-[1mm]">
+                <div className="rounded-[1mm] p-[1mm]" style={{ background: '#fff' }}>
                   <svg
                     viewBox={`0 0 ${size} ${size}`}
                     shapeRendering="crispEdges"

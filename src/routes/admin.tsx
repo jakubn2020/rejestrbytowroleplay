@@ -13,12 +13,16 @@ import {
   ArrowDown,
   ArrowUp,
   BadgeCheck,
+  Eye,
+  Flag,
   Inbox,
   KeyRound,
   LogOut,
+  Monitor,
   Pencil,
   ScrollText,
   Search,
+  ShieldAlert,
   Trash2,
   UserCog,
   UserPlus,
@@ -65,8 +69,10 @@ import {
   addPractitioner,
   deleteManagement,
   deletePractitioner,
+  findPeselMatches,
   listManagement,
   listPractitioners,
+  revealPesel,
   updatePractitioner,
 } from '@/lib/registry.functions'
 
@@ -77,14 +83,22 @@ import {
   ChangePasswordDialog,
   ResetManagementPasswordDialog,
 } from '@/components/admin/password-dialogs'
+import { AlertsPanel } from '@/components/admin/alerts-panel'
+import { ReportsPanel } from '@/components/admin/reports-panel'
 import { RequestForm } from '@/components/admin/request-form'
 import {
   MyRequestsPanel,
   RequestsPanel,
 } from '@/components/admin/requests-panels'
+import { SessionsDialog } from '@/components/admin/sessions-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
-import { endMfaSession, getMfaStatus } from '@/lib/mfa.functions'
-import { countPendingRequests } from '@/lib/requests.functions'
+import { getAdminCounts } from '@/lib/alerts.functions'
+import { checkLoginAllowed, reportLoginFailure } from '@/lib/login-guard.functions'
+import {
+  endMfaSession,
+  getMfaStatus,
+  startPlainSession,
+} from '@/lib/mfa.functions'
 
 export const Route = createFileRoute('/admin')({
   head: () => ({
@@ -104,16 +118,22 @@ type Auth =
   | { phase: 'mfa'; user: User }
   | { phase: 'signed-in'; user: User }
 
-/** Where a freshly authenticated user goes next: the e-mail code step (if enabled) or the panel. */
-async function resolveAuth(user: User): Promise<Auth> {
+/**
+ * Where an authenticated user goes next: the e-mail code step (if enabled) or the panel.
+ * `fresh` is true right after a password login. Without e-mail codes a panel session is
+ * only started then, so a device that was signed out remotely has to log in again.
+ */
+async function resolveAuth(user: User, fresh: boolean): Promise<Auth> {
   // If the status cannot be read, fail closed and ask for the code.
   const status = await getMfaStatus().catch(() => ({
     required: true,
     verified: false,
   }))
-  return status.required && !status.verified
-    ? { phase: 'mfa', user }
-    : { phase: 'signed-in', user }
+  if (status.verified) return { phase: 'signed-in', user }
+  if (status.required) return { phase: 'mfa', user }
+  if (!fresh) return { phase: 'signed-out' }
+  await startPlainSession().catch(() => undefined)
+  return { phase: 'signed-in', user }
 }
 
 function AdminPage() {
@@ -136,7 +156,9 @@ function AdminPage() {
         toast.error('Link z wiadomości e-mail jest nieprawidłowy lub wygasł.')
       }
       const user = await getUser().catch(() => null)
-      const next: Auth = user ? await resolveAuth(user) : { phase: 'signed-out' }
+      const next: Auth = user
+        ? await resolveAuth(user, false)
+        : { phase: 'signed-out' }
       if (active) setAuth(next)
     }
     void init()
@@ -146,7 +168,7 @@ function AdminPage() {
   }, [])
 
   async function enter(user: User) {
-    setAuth(await resolveAuth(user))
+    setAuth(await resolveAuth(user, true))
   }
 
   async function signOut() {
@@ -198,21 +220,25 @@ function AdminPage() {
 
 function LoginForm({ onDone }: { onDone: (user: User) => void }) {
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const fields = new FormData(event.currentTarget)
     setPending(true)
-    setError(false)
+    setError(null)
+    const email = String(fields.get('email'))
     try {
-      const user = await login(
-        String(fields.get('email')),
-        String(fields.get('password')),
-      )
+      const gate = await checkLoginAllowed().catch(() => ({ allowed: true }))
+      if (!gate.allowed) {
+        setError('Zbyt wiele nieudanych prób logowania. Spróbuj ponownie za 15 minut.')
+        return
+      }
+      const user = await login(email, String(fields.get('password')))
       onDone(user)
     } catch {
-      setError(true)
+      void reportLoginFailure({ data: { email } }).catch(() => undefined)
+      setError('Nieprawidłowy e-mail lub hasło.')
     } finally {
       setPending(false)
     }
@@ -239,7 +265,7 @@ function LoginForm({ onDone }: { onDone: (user: User) => void }) {
           </div>
           {error && (
             <p role="alert" className="text-sm text-destructive">
-              Nieprawidłowy e-mail lub hasło.
+              {error}
             </p>
           )}
           <Button type="submit" className="w-full" disabled={pending}>
@@ -336,7 +362,6 @@ function matchesQuery(row: Row, query: string) {
       ENTRY_STATUSES[row.status],
       row.entryNumber,
       row.createdBy,
-      row.pesel,
     ]
       .filter(Boolean)
       .join(' '),
@@ -432,7 +457,11 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [showManagement, setShowManagement] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
   const [showRequests, setShowRequests] = useState(false)
-  const [pendingRequests, setPendingRequests] = useState(0)
+  const [showReports, setShowReports] = useState(false)
+  const [showAlerts, setShowAlerts] = useState(false)
+  const [sessionsOpen, setSessionsOpen] = useState(false)
+  const [counts, setCounts] = useState({ requests: 0, reports: 0, alerts: 0 })
+  const [peselIds, setPeselIds] = useState<Set<number>>(new Set())
   const [query, setQuery] = useState('')
   const [professionFilter, setProfessionFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -459,19 +488,54 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
     if (canAdd) void refresh()
   }, [canAdd, refresh])
 
-  // Number of requests waiting for an admin decision (shown on the "Wnioski" button).
+  // What needs an admin's attention (requests, reports, alerts); checked every minute.
   useEffect(() => {
     if (!isAdmin) return
     let active = true
-    countPendingRequests()
-      .then((r) => {
-        if (active) setPendingRequests(r.pending)
-      })
-      .catch(() => undefined)
+    let previous: typeof counts | null = null
+    async function check() {
+      try {
+        const next = await getAdminCounts()
+        if (!active) return
+        if (previous) {
+          if (next.requests > previous.requests) toast.info('Nowy wniosek o wpis czeka na decyzję.')
+          if (next.reports > previous.reports) toast.info('Nowe zgłoszenie błędu w rejestrze.')
+          if (next.alerts > previous.alerts) toast.warning('Nowy alert bezpieczeństwa.')
+        }
+        previous = next
+        setCounts(next)
+      } catch {
+        // ignore: the next check will try again
+      }
+    }
+    void check()
+    const timer = setInterval(() => void check(), 60_000)
     return () => {
       active = false
+      clearInterval(timer)
     }
   }, [isAdmin, logVersion])
+
+  // Searching by PESEL happens on the server, so PESEL numbers are never part of the list.
+  useEffect(() => {
+    const digits = query.trim()
+    if (!/^\d{6,100}$/.test(digits)) {
+      setPeselIds(new Set())
+      return
+    }
+    let active = true
+    const timer = setTimeout(() => {
+      findPeselMatches({ data: { q: digits } })
+        .then((r) => {
+          if (active) setPeselIds(new Set(r.ids))
+        })
+        .catch(() => undefined)
+    }, 300)
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [query])
 
   const professions = rows
     ? [...new Set(rows.map((r) => r.profession))].sort((a, b) =>
@@ -488,7 +552,7 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
     ? rows
         .filter(
           (row) =>
-            matchesQuery(row, query) &&
+            (matchesQuery(row, query) || peselIds.has(row.id)) &&
             (!professionFilter || row.profession === professionFilter) &&
             (!statusFilter || row.status === statusFilter) &&
             (!authorFilter || row.createdBy === authorFilter),
@@ -528,6 +592,9 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
           Zalogowano jako <strong className="text-foreground">{user.email}</strong>
         </p>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setSessionsOpen(true)}>
+            <Monitor className="size-4" /> Urządzenia
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setPasswordOpen(true)}>
             <KeyRound className="size-4" /> Zmień hasło
           </Button>
@@ -539,6 +606,11 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
       <ChangePasswordDialog
         open={passwordOpen}
         onClose={() => setPasswordOpen(false)}
+      />
+      <SessionsDialog
+        open={sessionsOpen}
+        onClose={() => setSessionsOpen(false)}
+        onSignedOutEverywhere={onLogout}
       />
 
       {isAdmin && (
@@ -557,7 +629,21 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
             onClick={() => setShowRequests((open) => !open)}
           >
             <Inbox className="size-4" /> Wnioski
-            {pendingRequests > 0 ? ` (${pendingRequests})` : ''}
+            {counts.requests > 0 ? ` (${counts.requests})` : ''}
+          </Button>
+          <Button
+            variant={showReports ? 'default' : 'outline'}
+            onClick={() => setShowReports((open) => !open)}
+          >
+            <Flag className="size-4" /> Zgłoszenia
+            {counts.reports > 0 ? ` (${counts.reports})` : ''}
+          </Button>
+          <Button
+            variant={showAlerts ? 'default' : 'outline'}
+            onClick={() => setShowAlerts((open) => !open)}
+          >
+            <ShieldAlert className="size-4" /> Alerty
+            {counts.alerts > 0 ? ` (${counts.alerts})` : ''}
           </Button>
           <Button
             variant={showTrash ? 'default' : 'outline'}
@@ -578,6 +664,12 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
           key={logVersion}
           onChanged={() => setLogVersion((version) => version + 1)}
         />
+      )}
+      {isAdmin && showAlerts && (
+        <AlertsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
+      )}
+      {isAdmin && showReports && (
+        <ReportsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
       )}
       {isAdmin && showRequests && (
         <RequestsPanel key={logVersion} onChanged={() => void refreshAll()} />
@@ -741,7 +833,9 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
                             {row.createdBy ? ` · dodał(a): ${row.createdBy}` : ''}
                           </span>
                         </TableCell>
-                        <TableCell className="font-mono">{row.pesel}</TableCell>
+                        <TableCell className="font-mono">
+                          <PeselCell id={row.id} />
+                        </TableCell>
                         <TableCell className="font-mono">{row.pwz}</TableCell>
                         <TableCell>{row.profession}</TableCell>
                         <TableCell>{row.specialization}</TableCell>
@@ -807,6 +901,55 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
         </>
       )}
     </div>
+  )
+}
+
+/** PESEL is hidden by default; showing it is audited and it hides itself again after a while. */
+function PeselCell({ id }: { id: number }) {
+  const [pesel, setPesel] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+
+  useEffect(() => {
+    if (pesel === null) return
+    const timer = setTimeout(() => setPesel(null), 30_000)
+    return () => clearTimeout(timer)
+  }, [pesel])
+
+  async function reveal() {
+    setPending(true)
+    try {
+      const result = await revealPesel({ data: { id, purpose: 'podgląd w tabeli' } })
+      setPesel(result.pesel)
+    } catch {
+      toast.error('Nie udało się odsłonić numeru PESEL.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  if (pesel !== null) {
+    return (
+      <button
+        type="button"
+        title="Ukryj"
+        className="font-mono hover:underline"
+        onClick={() => setPesel(null)}
+      >
+        {pesel}
+      </button>
+    )
+  }
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => void reveal()}
+      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+      aria-label="Pokaż numer PESEL"
+    >
+      <span aria-hidden>•••••••••••</span>
+      <Eye className="size-3.5" />
+    </button>
   )
 }
 
@@ -1038,13 +1181,31 @@ function EditDialog({
   const [error, setError] = useState<string | null>(null)
   const paramedic = row ? isParamedic(row.profession) : false
 
-  // Reset the form whenever a different entry is opened.
+  const [loadingPesel, setLoadingPesel] = useState(false)
+
+  // Reset the form whenever a different entry is opened (the PESEL is fetched, and audited).
   useEffect(() => {
-    setPesel(row?.pesel ?? '')
+    setPesel('')
     setPwz(row?.pwz ?? '')
     setSpecialization(row?.rawSpecialization ?? '')
     setStatus(row?.status ?? 'active')
     setError(null)
+    if (!row) return
+    let active = true
+    setLoadingPesel(true)
+    revealPesel({ data: { id: row.id, purpose: 'edycja wpisu' } })
+      .then((r) => {
+        if (active) setPesel(r.pesel ?? '')
+      })
+      .catch(() => {
+        if (active) setError('Nie udało się wczytać numeru PESEL.')
+      })
+      .finally(() => {
+        if (active) setLoadingPesel(false)
+      })
+    return () => {
+      active = false
+    }
   }, [row])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -1167,7 +1328,7 @@ function EditDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               Anuluj
             </Button>
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending || loadingPesel}>
               {pending ? 'Zapisywanie…' : 'Zapisz zmiany'}
             </Button>
           </DialogFooter>

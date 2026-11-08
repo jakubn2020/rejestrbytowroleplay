@@ -7,6 +7,7 @@ import {
   eq,
   isNotNull,
   isNull,
+  like,
   lt,
   ne,
   or,
@@ -26,11 +27,12 @@ import {
   TRASH_RETENTION_DAYS,
   entryNumber,
   isParamedic,
+  professionKind,
   type EntryStatus,
   type PublicEntry,
 } from './registry'
 import { peselSchema, practitionerInput } from './schemas'
-import { logEvent, lookupAllowed } from './security-server'
+import { logEvent, logPeselView, lookupAllowed } from './security-server'
 
 /** Rows that are not in the trash. */
 const alive = isNull(practitioners.deletedAt)
@@ -124,14 +126,74 @@ export const listPractitioners = createServerFn({ method: 'GET' })
       .orderBy(desc(practitioners.createdAt))
     return rows.map((row) => ({
       id: row.id,
-      // PESEL is sent to staff only (admin and kierownictwo), never to the public.
-      pesel: row.pesel,
+      // The PESEL is not part of the list: it is fetched (and audited) with `revealPesel`.
       // Raw value (or null) so the admin edit form can be prefilled.
       rawSpecialization: row.specialization,
       createdBy: row.createdBy,
       ...toPublic(row),
     }))
   })
+
+/** Staff only: shows one PESEL. Every call is written to the audit log. */
+export const revealPesel = createServerFn({ method: 'POST' })
+  .middleware([requireStaff])
+  .validator(
+    z.object({
+      id: z.number().int().positive(),
+      purpose: z.enum(['podgląd w tabeli', 'edycja wpisu']),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    const [row] = await db
+      .select()
+      .from(practitioners)
+      .where(and(eq(practitioners.id, data.id), alive))
+      .limit(1)
+    if (!row) return { pesel: null }
+    await logPeselView({
+      actor: context.identity,
+      actorRole: context.isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
+      target: `${row.firstName} ${row.lastName} (PWZ ${row.pwz})`,
+      purpose: data.purpose,
+    })
+    return { pesel: row.pesel }
+  })
+
+/** Staff only: ids of entries whose PESEL contains the digits (lets the panel search by PESEL without sending PESELs). */
+export const findPeselMatches = createServerFn({ method: 'GET' })
+  .middleware([requireStaff])
+  .validator(z.object({ q: z.string().regex(/^\d{6,100}$/) }))
+  .handler(async ({ data }) => {
+    const rows = await db
+      .select({ id: practitioners.id })
+      .from(practitioners)
+      .where(and(alive, like(practitioners.pesel, `%${data.q}%`)))
+      .limit(20)
+    return { ids: rows.map((row) => row.id) }
+  })
+
+/** Public: how many active entries there are per profession. */
+export const getPublicStats = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    const rows = await db
+      .select({
+        profession: practitioners.profession,
+        n: sql<string>`count(*)`,
+      })
+      .from(practitioners)
+      .where(and(alive, eq(practitioners.status, 'active')))
+      .groupBy(practitioners.profession)
+    const stats = { doctors: 0, nurses: 0, paramedics: 0 }
+    for (const row of rows) {
+      const kind = professionKind(row.profession)
+      const n = Number(row.n)
+      if (kind === 'doctor') stats.doctors += n
+      else if (kind === 'nurse') stats.nurses += n
+      else stats.paramedics += n
+    }
+    return stats
+  },
+)
 
 export type AddResult = { ok: true; pwz: string } | { ok: false; error: string }
 
@@ -280,13 +342,19 @@ export const deletePractitioner = createServerFn({ method: 'POST' })
 export const getBadge = createServerFn({ method: 'GET' })
   .middleware([requireStaff])
   .validator(z.object({ id: z.number().int().positive() }))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const [row] = await db
       .select()
       .from(practitioners)
       .where(and(eq(practitioners.id, data.id), alive))
       .limit(1)
     if (!row) return null
+    await logPeselView({
+      actor: context.identity,
+      actorRole: context.isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
+      target: `${row.firstName} ${row.lastName} (PWZ ${row.pwz})`,
+      purpose: 'plakietka',
+    })
     return {
       id: row.id,
       firstName: row.firstName,

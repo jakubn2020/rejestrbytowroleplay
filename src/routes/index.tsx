@@ -6,9 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatDate, type EntryStatus } from '@/lib/registry'
-import { searchRegistry, type SearchResult } from '@/lib/registry.functions'
+import {
+  getPublicStats,
+  searchRegistry,
+  type SearchResult,
+} from '@/lib/registry.functions'
 
 export const Route = createFileRoute('/')({
+  loader: () => getPublicStats().catch(() => null),
   component: Home,
 })
 
@@ -19,6 +24,7 @@ type State =
   | { phase: 'error' }
 
 function Home() {
+  const stats = Route.useLoaderData()
   const [query, setQuery] = useState('')
   const [state, setState] = useState<State>({ phase: 'idle' })
 
@@ -73,6 +79,14 @@ function Home() {
           </Button>
         </div>
       </form>
+
+      {stats && (
+        <dl className="mt-8 grid grid-cols-3 gap-3 text-center">
+          <Stat label="Lekarzy" value={stats.doctors} />
+          <Stat label="Pielęgniarzy" value={stats.nurses} />
+          <Stat label="Ratowników medycznych" value={stats.paramedics} />
+        </dl>
+      )}
 
       <section aria-live="polite" className="mt-8">
         {state.phase === 'error' && (
@@ -165,6 +179,17 @@ function Field({
       <dd className={mono ? 'mt-1 font-mono text-lg' : 'mt-1 text-base'}>
         {value}
       </dd>
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border bg-white px-2 py-4 shadow-sm">
+      <dd className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
+        {value}
+      </dd>
+      <dt className="mt-1 text-xs text-muted-foreground sm:text-sm">{label}</dt>
     </div>
   )
 }
