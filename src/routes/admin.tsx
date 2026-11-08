@@ -19,7 +19,6 @@ import {
   Pencil,
   ScrollText,
   Search,
-  Stamp,
   Trash2,
   UserCog,
   UserPlus,
@@ -83,7 +82,6 @@ import {
   MyRequestsPanel,
   RequestsPanel,
 } from '@/components/admin/requests-panels'
-import { SealDialog } from '@/components/admin/seal-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
 import { endMfaSession, getMfaStatus } from '@/lib/mfa.functions'
 import { countPendingRequests } from '@/lib/requests.functions'
@@ -430,7 +428,6 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [editing, setEditing] = useState<Row | null>(null)
   const [managementOpen, setManagementOpen] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
-  const [sealOpen, setSealOpen] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [showManagement, setShowManagement] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
@@ -574,9 +571,6 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
           >
             <ScrollText className="size-4" /> Dziennik zdarzeń
           </Button>
-          <Button variant="outline" onClick={() => setSealOpen(true)}>
-            <Stamp className="size-4" /> Pieczęć
-          </Button>
         </div>
       )}
       {isAdmin && showManagement && (
@@ -599,7 +593,6 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
             onClose={() => setManagementOpen(false)}
             onCreated={() => setLogVersion((version) => version + 1)}
           />
-          <SealDialog open={sealOpen} onClose={() => setSealOpen(false)} />
         </>
       )}
 

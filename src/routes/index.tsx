@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
-import { Link, createFileRoute } from '@tanstack/react-router'
-import { FileText, Search } from 'lucide-react'
+import { createFileRoute } from '@tanstack/react-router'
+import { Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -113,21 +113,6 @@ function Home() {
                     <Field label="Numer wpisu" value={entry.entryNumber} mono />
                     <Field label="Data wpisu" value={formatDate(entry.entryDate)} />
                   </dl>
-                  {entry.status === 'active' && (
-                    <div className="border-t px-5 py-3">
-                      <Button asChild variant="outline" size="sm">
-                        <Link
-                          to="/zaswiadczenie/$pwz"
-                          params={{ pwz: entry.pwz }}
-                          target="_blank"
-                          rel="noopener"
-                        >
-                          <FileText className="size-4" />
-                          Zaświadczenie o posiadaniu tytułu (PDF)
-                        </Link>
-                      </Button>
-                    </div>
-                  )}
                 </article>
               ))}
             </div>

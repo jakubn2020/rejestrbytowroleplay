@@ -2,10 +2,8 @@ export const PROFESSIONS = [
   'Lekarz rezydent',
   'Lekarz',
   'Lekarz specjalista',
-  'Ratownik medyczny (magister)',
-  'Ratownik medyczny (licencjat)',
-  'Pielęgniarz (magister)',
-  'Pielęgniarz (licencjat)',
+  'Ratownik medyczny',
+  'Pielęgniarz',
 ] as const
 
 export type Profession = (typeof PROFESSIONS)[number]
@@ -25,14 +23,14 @@ export type EntryStatus = keyof typeof ENTRY_STATUSES
 
 export const ENTRY_STATUS_KEYS = ['active', 'suspended', 'expired'] as const
 
-/** Issuer printed on certificates (fictional, for the roleplay). */
+/** Issuer printed on badges (fictional, for the roleplay). */
 export const CERTIFICATE_ISSUER =
   'Wojewódzka Stacja Pogotowia Ratunkowego „Medicare” w Milanowie'
 
 /** Entries moved to the trash are purged after this many days. */
 export const TRASH_RETENTION_DAYS = 30
 
-/** Public entry number shown in the registry and on certificates. */
+/** Public entry number shown in the registry. */
 export function entryNumber(id: number): string {
   return String(id).padStart(6, '0')
 }
@@ -60,7 +58,7 @@ export const AUDIT_ACTION_LABELS = {
   add_management: 'Dodano konto kierownictwa',
   delete_management: 'Usunięto konto kierownictwa',
   reset_password: 'Ustawiono nowe hasło kierownictwa',
-  seal: 'Zmieniono pieczęć zaświadczeń',
+  seal: 'Zmieniono pieczęć (funkcja usunięta)',
   login: 'Zalogowano (kod z e-maila)',
   request_create: 'Złożono wniosek o wpis',
   request_approve: 'Zaakceptowano wniosek o wpis',
