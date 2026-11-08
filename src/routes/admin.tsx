@@ -132,7 +132,11 @@ async function resolveAuth(user: User, fresh: boolean): Promise<Auth> {
   if (status.verified) return { phase: 'signed-in', user }
   if (status.required) return { phase: 'mfa', user }
   if (!fresh) return { phase: 'signed-out' }
-  await startPlainSession().catch(() => undefined)
+  const started = await startPlainSession().catch(() => ({ ok: false as const }))
+  if (!started.ok) {
+    toast.error('Nie udało się rozpocząć sesji. Zaloguj się ponownie.')
+    return { phase: 'signed-out' }
+  }
   return { phase: 'signed-in', user }
 }
 

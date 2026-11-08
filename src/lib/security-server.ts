@@ -75,7 +75,13 @@ export function readCookie(name: string): string | null {
   const header = getRequestHeader('cookie') ?? ''
   for (const part of header.split(';')) {
     const [key, ...rest] = part.trim().split('=')
-    if (key === name) return decodeURIComponent(rest.join('='))
+    if (key === name) {
+      try {
+        return decodeURIComponent(rest.join('='))
+      } catch {
+        return null
+      }
+    }
   }
   return null
 }
