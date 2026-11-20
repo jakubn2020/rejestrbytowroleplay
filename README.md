@@ -9,32 +9,42 @@ Dostępne zawody: lekarz rezydent, lekarz, lekarz specjalista, ratownik medyczny
 ## Technologie
 
 - TanStack Start (React 19), Tailwind CSS 4, shadcn/ui
-- Netlify Database (Postgres) + Drizzle ORM — przechowywanie wpisów
-- Netlify Identity — logowanie administratora (rola `admin`)
+- Cloudflare Workers — hosting (`wrangler.jsonc`)
+- Postgres (Neon) + Drizzle ORM — przechowywanie wpisów i kont
+- Własne logowanie (tabele `users`, `auth_sessions`, hasła PBKDF2) — role `admin` i `kierownictwo`
 
-## Konfiguracja konta administratora
+## Wdrożenie na Cloudflare
 
-1. W panelu Netlify: **Project configuration → Identity** ustaw rejestrację na **Invite only**.
-2. W zakładce **Identity** kliknij **Invite users** i podaj swój e-mail.
-3. Kliknij link z maila — otworzy się `/admin`, gdzie ustawisz hasło.
-4. W Netlify otwórz swojego użytkownika w Identity i w polu **Roles** dodaj `admin`.
-5. Zaloguj się ponownie na `/admin`.
+1. **Baza.** Potrzebujesz Postgresa dostępnego z internetu (np. darmowy Neon). Zostaw dotychczasową bazę albo zrób nową i przenieś dane:
+   `pg_dump "STARY_URL" --data-only --no-owner > dane.sql` oraz `psql "NOWY_URL" < dane.sql`.
+2. **Tabele.** W nowej, pustej bazie wykonaj po kolei pliki `netlify/database/migrations/*/migration.sql` (kolejność alfabetyczna folderów). W bazie, która już działa, wystarczy najnowszy folder `20261120075859_auth_accounts` (nowe tabele kont).
+3. **Sekrety** (w katalogu projektu, po `pnpm install` i `pnpm wrangler login`):
+   - `pnpm wrangler secret put DATABASE_URL` — adres połączenia do bazy,
+   - `pnpm wrangler secret put SUPERADMIN_EMAIL` — e-mail właściciela (konto, które dodaje administratorów),
+   - `pnpm wrangler secret put SITE_URL` — adres strony, np. `https://twojadomena.pl` (do linków w e-mailach),
+   - opcjonalnie `RESEND_API_KEY` i `EMAIL_FROM` — kody 2FA i powiadomienia e-mail (bez klucza kod nie jest wymagany).
+4. **Konto właściciela:** `DATABASE_URL="..." pnpm create-user wlasciciel@example.com "silne-haslo" admin` (ten sam e-mail co w `SUPERADMIN_EMAIL`).
+5. **Wdrożenie:** `pnpm deploy`. Domenę dodajesz w panelu Cloudflare: Workers & Pages → projekt → Settings → Domains & Routes → Add → Custom domain.
+6. **Konta z Netlify Identity:** hasła nie przenoszą się. Właściciel dodaje administratorów w panelu („Dodaj administratora”), a administratorzy dodają kierownictwo („Dodaj kierownictwo”). Każdy dostaje hasło początkowe i może je zmienić przyciskiem „Zmień hasło”.
 
 ## Uruchomienie lokalne
 
 ```bash
 pnpm install
-netlify dev
+# plik .dev.vars w katalogu projektu (nie trafia do gita):
+#   DATABASE_URL=postgres://...
+#   SUPERADMIN_EMAIL=ty@example.com
+pnpm dev
 ```
 
-Migracje bazy znajdują się w `netlify/database/migrations/` i są stosowane automatycznie przy wdrożeniu. Po zmianie `db/schema.ts` wygeneruj nową migrację: `npx drizzle-kit generate --name <nazwa>`.
+Po zmianie `db/schema.ts` wygeneruj migrację: `DATABASE_URL=... npx drizzle-kit generate --name <nazwa>` i wykonaj jej `migration.sql` w bazie.
 
 ## Role
 
 - `admin` – dodaje osoby bezpośrednio, usuwa je (do kosza na 30 dni), edytuje PESEL, specjalizację, status i ręcznie ustawia numer PWZ (PWZ musi mieć 7 cyfr i być unikalny). Tylko `admin` widzi przyciski: „Dodaj kierownictwo”, „Konta kierownictwa” (lista, reset hasła, usuwanie), „Wnioski” (akceptacja lub odrzucenie wniosków kierownictwa), „Kosz” i „Dziennik zdarzeń” (z filtrami i eksportem CSV).
 - `kierownictwo` – widzi numery PESEL, wyszukuje pracowników i tworzy plakietki. Nie dodaje osób bezpośrednio: składa **wniosek** (imię, nazwisko, PESEL, zawód i **zrzut ekranu wiadomości**, w której ta osoba prosi o wpis), najwyżej jeden na 5 minut (limit liczony po stronie serwera). Wniosek akceptuje lub odrzuca admin, oglądając zrzut ekranu; po akceptacji wpis powstaje automatycznie (w rejestrze figuruje jako dodany przez osobę z kierownictwa). Kierownictwo nie edytuje i nie usuwa wpisów.
 
-Role nadaje się w ustawieniach Netlify Identity (Users → użytkownik → Roles).
+Role nadaje się przy zakładaniu konta: kierownictwo dodaje każdy administrator, a administratorów dodaje tylko właściciel (konto z `SUPERADMIN_EMAIL`), w sekcji „Dodaj administratora” i „Konta administratorów”. Konta właściciela nie da się usunąć z panelu.
 
 ## Status wpisu
 
@@ -46,8 +56,8 @@ Przy każdej osobie w panelu jest ikona plakietki (`/plakietka/<id>`, dostępna 
 
 ## Bezpieczeństwo
 
-- Logowanie dwuetapowe: po haśle przychodzi e-mail z kodem (ważny 10 minut). Włącza się samo, gdy w Netlify ustawisz zmienną `RESEND_API_KEY` (konto na resend.com); opcjonalnie `EMAIL_FROM` (nadawca). Bez klucza kod nie jest wymagany, żeby nikogo nie zablokować.
-- **Ochrona przed zgadywaniem:** po 8 nieudanych logowaniach z jednego adresu IP formularz logowania blokuje ten adres na 15 minut (blokada działa w formularzu panelu; hasła sprawdza Netlify Identity, które ma własne limity). Kod z e-maila: 5 błędnych prób unieważnia kod, a po 3 takich seriach konto nie dostaje nowego kodu przez 15 minut. Wyszukiwanie po numerach (PESEL/PWZ) i weryfikacje QR mają limit 15 zapytań na minutę z jednego adresu.
+- Logowanie dwuetapowe: po haśle przychodzi e-mail z kodem (ważny 10 minut). Włącza się samo, gdy ustawisz sekret `RESEND_API_KEY` (konto na resend.com); opcjonalnie `EMAIL_FROM` (nadawca). Bez klucza kod nie jest wymagany, żeby nikogo nie zablokować.
+- **Ochrona przed zgadywaniem:** po 8 nieudanych logowaniach z jednego adresu IP formularz logowania blokuje ten adres na 15 minut (blokada działa w formularzu panelu; limit liczony jest po stronie serwera, przy każdej próbie logowania). Kod z e-maila: 5 błędnych prób unieważnia kod, a po 3 takich seriach konto nie dostaje nowego kodu przez 15 minut. Wyszukiwanie po numerach (PESEL/PWZ) i weryfikacje QR mają limit 15 zapytań na minutę z jednego adresu.
 - **PESEL jest ukryty w tabeli:** lista nie zawiera numerów PESEL. Odsłonięcie jednego (oko w tabeli, edycja wpisu, plakietka) jest zapisywane w dzienniku zdarzeń; po 30 sekundach numer znów się ukrywa. Wyszukiwanie po PESEL działa po stronie serwera.
 - **Alerty bezpieczeństwa** (przycisk „Alerty” dla adminów, z licznikiem): wiele nieudanych logowań z jednego adresu lub na jedno konto, zgadywanie kodu z e-maila, przekroczenie limitu zapytań o numery, masowe odsłanianie PESEL (15 w 10 minut) i logowanie z nowego adresu IP. Przy ustawionym `RESEND_API_KEY` alerty są też wysyłane e-mailem do adminów.
 - **Urządzenia:** przycisk „Urządzenia” pokazuje przeglądarki zalogowane na koncie (z adresem IP), pozwala wylogować każdą z nich albo wszystkie naraz. Wylogowane urządzenie od razu traci dostęp do panelu.

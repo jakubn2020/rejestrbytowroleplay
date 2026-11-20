@@ -4,14 +4,14 @@
  */
 import { createServerFn } from '@tanstack/react-start'
 import { setResponseHeader } from '@tanstack/react-start/server'
-import { getUser } from '@netlify/identity'
 import { and, desc, eq, gt, like, sql } from 'drizzle-orm'
 import { randomInt, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 
 import { db } from '../../db'
-import { loginCodes, mfaSessions } from '../../db/schema'
+import { authSessions, loginCodes, mfaSessions } from '../../db/schema'
 import { requireStaff } from './auth-server'
+import { getSessionUser } from './session-server'
 import { ROLE_ADMIN, ROLE_MANAGEMENT } from './registry'
 import {
   MFA_COOKIE,
@@ -35,13 +35,14 @@ const MAX_LOCKOUTS = 3
 
 /** The signed-in staff member (admin or kierownictwo), or null. Does not check the e-mail step. */
 async function currentStaff() {
-  const user = await getUser()
+  const user = await getSessionUser()
   const roles = user?.roles ?? []
   const isAdmin = roles.includes(ROLE_ADMIN)
   if (!user || (!isAdmin && !roles.includes(ROLE_MANAGEMENT))) return null
   return {
-    identity: (user.email ?? user.id).toLowerCase(),
-    email: user.email ?? null,
+    id: user.id,
+    identity: user.email.toLowerCase(),
+    email: user.email,
     role: isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
   }
 }
@@ -273,6 +274,7 @@ export const revokeAllSessions = createServerFn({ method: 'POST' })
   .middleware([requireStaff])
   .handler(async ({ context }) => {
     await db.delete(mfaSessions).where(eq(mfaSessions.identity, context.identity))
+    await db.delete(authSessions).where(eq(authSessions.userId, context.user.id))
     await logEvent({
       actor: context.identity,
       actorRole: context.isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,

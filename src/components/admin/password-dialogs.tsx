@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { updateUser } from '@netlify/identity'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -13,7 +12,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { setManagementPassword } from '@/lib/registry.functions'
+import { changeOwnPassword } from '@/lib/auth.functions'
+import { setAdminPassword, setManagementPassword } from '@/lib/registry.functions'
 
 /** Lets any signed-in user change their own password. */
 export function ChangePasswordDialog({
@@ -35,6 +35,7 @@ export function ChangePasswordDialog({
     const form = event.currentTarget
     const fields = new FormData(form)
     const password = String(fields.get('password'))
+    const currentPassword = String(fields.get('current'))
     if (password.length < 8) {
       setError('Hasło musi mieć co najmniej 8 znaków.')
       return
@@ -46,7 +47,13 @@ export function ChangePasswordDialog({
     setPending(true)
     setError(null)
     try {
-      await updateUser({ password })
+      const result = await changeOwnPassword({
+        data: { currentPassword, newPassword: password },
+      })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
       toast.success('Hasło zostało zmienione.')
       form.reset()
       onClose()
@@ -67,6 +74,16 @@ export function ChangePasswordDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="own-current">Obecne hasło</Label>
+            <Input
+              id="own-current"
+              name="current"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+          </div>
           <div className="space-y-2">
             <Label htmlFor="own-password">Nowe hasło</Label>
             <Input
@@ -108,15 +125,17 @@ export function ChangePasswordDialog({
   )
 }
 
-/** Admin: sets a new password for a kierownictwo account. */
+/** Admin: sets a new password for a kierownictwo account (the owner account: for an admin account). */
 export function ResetManagementPasswordDialog({
   target,
   onClose,
   onDone,
+  kind = 'management',
 }: {
   target: { id: string; email: string } | null
   onClose: () => void
   onDone: () => void
+  kind?: 'management' | 'admin'
 }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -137,7 +156,7 @@ export function ResetManagementPasswordDialog({
     setPending(true)
     setError(null)
     try {
-      const result = await setManagementPassword({
+      const result = await (kind === 'admin' ? setAdminPassword : setManagementPassword)({
         data: { id: target.id, password },
       })
       if (!result.ok) {
@@ -161,7 +180,9 @@ export function ResetManagementPasswordDialog({
         <DialogHeader>
           <DialogTitle>Nowe hasło: {target?.email}</DialogTitle>
           <DialogDescription>
-            Ustaw nowe hasło dla tego konta kierownictwa i przekaż je tej osobie.
+            {kind === 'admin'
+              ? 'Ustaw nowe hasło dla tego konta administratora i przekaż je tej osobie. Zostanie wylogowana na wszystkich urządzeniach.'
+              : 'Ustaw nowe hasło dla tego konta kierownictwa i przekaż je tej osobie. Zostanie wylogowana na wszystkich urządzeniach.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">

@@ -1,5 +1,4 @@
 import { createServerFn } from '@tanstack/react-start'
-import { admin } from '@netlify/identity'
 import {
   and,
   asc,
@@ -16,8 +15,17 @@ import {
 import { z } from 'zod'
 
 import { db } from '../../db'
-import { auditLog, practitioners, type Practitioner } from '../../db/schema'
-import { requireAdmin, requireStaff } from './auth-server'
+import {
+  auditLog,
+  mfaSessions,
+  practitioners,
+  authSessions,
+  users,
+  type Practitioner,
+} from '../../db/schema'
+import { requireAdmin, requireStaff, requireSuperAdmin } from './auth-server'
+import { superAdminEmail } from './session-server'
+import { hashPassword } from './password'
 import { IN_TRASH, insertPractitioner } from './practitioners-server'
 import {
   ENTRY_STATUSES,
@@ -508,150 +516,225 @@ export const listAuditLog = createServerFn({ method: 'GET' })
   })
 
 // ---------------------------------------------------------------------------
-// kierownictwo accounts (Netlify Identity)
+// Staff accounts: kierownictwo (any admin) and admin (owner account only)
 // ---------------------------------------------------------------------------
-
-/** Admin only: Identity accounts that have the `kierownictwo` role (and are not admins). */
-export const listManagement = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
-  .handler(async () => {
-    const found = new Map<string, { id: string; email: string }>()
-    const perPage = 100
-    for (let page = 1; page <= 20; page++) {
-      const users = await admin.listUsers({ page, perPage })
-      for (const user of users) {
-        const roles = user.roles ?? []
-        if (roles.includes(ROLE_MANAGEMENT) && !roles.includes(ROLE_ADMIN)) {
-          found.set(user.id, { id: user.id, email: user.email ?? user.id })
-        }
-      }
-      if (users.length < perPage) break
-    }
-    return [...found.values()].sort((a, b) => a.email.localeCompare(b.email))
-  })
-
-export type DeleteManagementResult = { ok: true } | { ok: false; error: string }
-
-/** Admin only: permanently deletes a `kierownictwo` account. Admin accounts are refused. */
-export const deleteManagement = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
-  .validator(z.object({ id: z.string().min(1).max(100) }))
-  .handler(async ({ data, context }): Promise<DeleteManagementResult> => {
-    let email = data.id
-    try {
-      const target = await admin.getUser(data.id)
-      const roles = target.roles ?? []
-      if (!roles.includes(ROLE_MANAGEMENT) || roles.includes(ROLE_ADMIN)) {
-        return { ok: false, error: 'To konto nie jest kontem kierownictwa.' }
-      }
-      email = target.email ?? target.id
-      await admin.deleteUser(data.id)
-    } catch {
-      return { ok: false, error: 'Nie udało się usunąć konta.' }
-    }
-    await logEvent({
-      actor: context.identity,
-      actorRole: ROLE_ADMIN,
-      action: 'delete_management',
-      target: email,
-      details: `Rola: ${ROLE_MANAGEMENT}`,
-    })
-    return { ok: true }
-  })
 
 const passwordSchema = z
   .string()
   .min(8, 'Hasło musi mieć co najmniej 8 znaków')
   .max(200)
 
+const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email('Podaj poprawny adres e-mail')
+  .max(200)
+
+export type AccountRow = { id: string; email: string; isOwner: boolean }
+
+/** Accounts that have exactly this role (`kierownictwo` rows never include admins). */
+async function listAccounts(role: string): Promise<AccountRow[]> {
+  const owner = superAdminEmail()
+  const rows = await db
+    .select({ id: users.id, email: users.email, roles: users.roles })
+    .from(users)
+    .orderBy(users.email)
+  return rows
+    .filter(
+      (row) =>
+        row.roles.includes(role) &&
+        (role === ROLE_ADMIN || !row.roles.includes(ROLE_ADMIN)),
+    )
+    .map((row) => ({
+      id: row.id,
+      email: row.email,
+      isOwner: owner !== '' && row.email === owner,
+    }))
+}
+
+type AccountActor = { identity: string }
+
+function errorText(error: unknown): string {
+  const parts: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current instanceof Error; depth++) {
+    parts.push(current.message)
+    current = (current as Error & { cause?: unknown }).cause
+  }
+  return parts.join(' | ')
+}
+
+async function findAccount(id: string, role: string) {
+  const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1)
+  if (!row || !row.roles.includes(role)) return null
+  if (role === ROLE_MANAGEMENT && row.roles.includes(ROLE_ADMIN)) return null
+  return row
+}
+
+async function removeAccount(
+  id: string,
+  role: string,
+  actor: AccountActor,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const label = role === ROLE_ADMIN ? 'administratora' : 'kierownictwa'
+  try {
+    const target = await findAccount(id, role)
+    if (!target) return { ok: false, error: `To konto nie jest kontem ${label}.` }
+    if (target.email === superAdminEmail()) {
+      return { ok: false, error: 'Konta właściciela nie można usunąć.' }
+    }
+    await db.delete(mfaSessions).where(eq(mfaSessions.identity, target.email))
+    await db.delete(users).where(eq(users.id, target.id)) // sessions go with it (cascade)
+    await logEvent({
+      actor: actor.identity,
+      actorRole: ROLE_ADMIN,
+      action: role === ROLE_ADMIN ? 'delete_admin' : 'delete_management',
+      target: target.email,
+      details: `Rola: ${role}`,
+    })
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Nie udało się usunąć konta.' }
+  }
+}
+
+async function resetAccountPassword(
+  id: string,
+  password: string,
+  role: string,
+  actor: AccountActor,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const label = role === ROLE_ADMIN ? 'administratora' : 'kierownictwa'
+  try {
+    const target = await findAccount(id, role)
+    if (!target) return { ok: false, error: `To konto nie jest kontem ${label}.` }
+    await db
+      .update(users)
+      .set({ passwordHash: await hashPassword(password) })
+      .where(eq(users.id, target.id))
+    // Whoever knew the old password is signed out everywhere.
+    await db.delete(authSessions).where(eq(authSessions.userId, target.id))
+    await db.delete(mfaSessions).where(eq(mfaSessions.identity, target.email))
+    await logEvent({
+      actor: actor.identity,
+      actorRole: ROLE_ADMIN,
+      action: role === ROLE_ADMIN ? 'reset_admin_password' : 'reset_password',
+      target: target.email,
+      details: 'Hasło ustawione przez administratora',
+    })
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Nie udało się ustawić hasła.' }
+  }
+}
+
+export type AddAccountResult =
+  | { ok: true; email: string }
+  | { ok: false; error: string }
+
+async function createAccount(
+  input: { email: string; password: string },
+  role: string,
+  actor: AccountActor,
+): Promise<AddAccountResult> {
+  try {
+    await db.insert(users).values({
+      email: input.email,
+      passwordHash: await hashPassword(input.password),
+      roles: [role],
+      createdBy: actor.identity,
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      error: /duplicate|unique|already/i.test(errorText(error))
+        ? 'Konto z tym adresem e-mail już istnieje.'
+        : 'Nie udało się utworzyć konta. Spróbuj ponownie.',
+    }
+  }
+  await logEvent({
+    actor: actor.identity,
+    actorRole: ROLE_ADMIN,
+    action: role === ROLE_ADMIN ? 'add_admin' : 'add_management',
+    target: input.email,
+    details: `Rola: ${role}`,
+  })
+  return { ok: true, email: input.email }
+}
+
+const idInput = z.object({ id: z.string().min(1).max(100) })
+const accountInput = z.object({ email: emailSchema, password: passwordSchema })
+
+// --- kierownictwo (any admin) ---------------------------------------------
+
+export const listManagement = createServerFn({ method: 'GET' })
+  .middleware([requireAdmin])
+  .handler(async () => listAccounts(ROLE_MANAGEMENT))
+
+export type DeleteManagementResult = { ok: true } | { ok: false; error: string }
+
+/** Admin only: permanently deletes a `kierownictwo` account. Admin accounts are refused. */
+export const deleteManagement = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(idInput)
+  .handler(
+    async ({ data, context }): Promise<DeleteManagementResult> =>
+      removeAccount(data.id, ROLE_MANAGEMENT, context),
+  )
+
 export type SetPasswordResult = { ok: true } | { ok: false; error: string }
 
 /** Admin only: sets a new password for a `kierownictwo` account (admin accounts are refused). */
 export const setManagementPassword = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
-  .validator(
-    z.object({ id: z.string().min(1).max(100), password: passwordSchema }),
+  .validator(z.object({ id: idInput.shape.id, password: passwordSchema }))
+  .handler(
+    async ({ data, context }): Promise<SetPasswordResult> =>
+      resetAccountPassword(data.id, data.password, ROLE_MANAGEMENT, context),
   )
-  .handler(async ({ data, context }): Promise<SetPasswordResult> => {
-    let email = data.id
-    try {
-      const target = await admin.getUser(data.id)
-      const roles = target.roles ?? []
-      if (!roles.includes(ROLE_MANAGEMENT) || roles.includes(ROLE_ADMIN)) {
-        return { ok: false, error: 'To konto nie jest kontem kierownictwa.' }
-      }
-      email = target.email ?? target.id
-      await admin.updateUser(data.id, { password: data.password })
-    } catch {
-      return { ok: false, error: 'Nie udało się ustawić hasła.' }
-    }
-    await logEvent({
-      actor: context.identity,
-      actorRole: ROLE_ADMIN,
-      action: 'reset_password',
-      target: email,
-      details: 'Hasło ustawione przez administratora',
-    })
-    return { ok: true }
-  })
 
-const managementInput = z.object({
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .email('Podaj poprawny adres e-mail')
-    .max(200),
-  password: passwordSchema,
-})
+export type AddManagementResult = AddAccountResult
 
-export type AddManagementResult =
-  | { ok: true; email: string }
-  | { ok: false; error: string }
-
-/** Admin only: creates a Netlify Identity account that has the `kierownictwo` role. */
+/** Admin only: creates an account that has the `kierownictwo` role. */
 export const addManagement = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
-  .validator(managementInput)
-  .handler(async ({ data, context }): Promise<AddManagementResult> => {
-    let userId: string
-    let hasRole: boolean
-    try {
-      const user = await admin.createUser({
-        email: data.email,
-        password: data.password,
-        data: { app_metadata: { roles: [ROLE_MANAGEMENT] } },
-      })
-      userId = user.id
-      hasRole = user.roles?.includes(ROLE_MANAGEMENT) ?? false
-    } catch (error) {
-      const message = error instanceof Error ? error.message : ''
-      return {
-        ok: false,
-        error: /already|exist|registered|taken/i.test(message)
-          ? 'Konto z tym adresem e-mail już istnieje.'
-          : 'Nie udało się utworzyć konta. Spróbuj ponownie.',
-      }
-    }
-    if (!hasRole) {
-      // Make sure the role is stored even if createUser ignored app_metadata.
-      try {
-        await admin.updateUser(userId, {
-          app_metadata: { roles: [ROLE_MANAGEMENT] },
-        })
-      } catch {
-        return {
-          ok: false,
-          error: `Konto ${data.email} zostało utworzone, ale nie udało się nadać roli. Nadaj rolę ${ROLE_MANAGEMENT} w Netlify Identity.`,
-        }
-      }
-    }
-    await logEvent({
-      actor: context.identity,
-      actorRole: ROLE_ADMIN,
-      action: 'add_management',
-      target: data.email,
-      details: `Rola: ${ROLE_MANAGEMENT}`,
-    })
-    return { ok: true, email: data.email }
-  })
+  .validator(accountInput)
+  .handler(
+    async ({ data, context }): Promise<AddManagementResult> =>
+      createAccount(data, ROLE_MANAGEMENT, context),
+  )
+
+// --- admin (owner account only) -------------------------------------------
+
+/** Owner only: all admin accounts (the owner's own row is flagged). */
+export const listAdmins = createServerFn({ method: 'GET' })
+  .middleware([requireSuperAdmin])
+  .handler(async () => listAccounts(ROLE_ADMIN))
+
+/** Owner only: creates an account that has the `admin` role. */
+export const addAdmin = createServerFn({ method: 'POST' })
+  .middleware([requireSuperAdmin])
+  .validator(accountInput)
+  .handler(
+    async ({ data, context }): Promise<AddAccountResult> =>
+      createAccount(data, ROLE_ADMIN, context),
+  )
+
+/** Owner only: permanently deletes an admin account (never the owner's own). */
+export const deleteAdmin = createServerFn({ method: 'POST' })
+  .middleware([requireSuperAdmin])
+  .validator(idInput)
+  .handler(
+    async ({ data, context }): Promise<DeleteManagementResult> =>
+      removeAccount(data.id, ROLE_ADMIN, context),
+  )
+
+/** Owner only: sets a new password for an admin account. */
+export const setAdminPassword = createServerFn({ method: 'POST' })
+  .middleware([requireSuperAdmin])
+  .validator(z.object({ id: idInput.shape.id, password: passwordSchema }))
+  .handler(
+    async ({ data, context }): Promise<SetPasswordResult> =>
+      resetAccountPassword(data.id, data.password, ROLE_ADMIN, context),
+  )

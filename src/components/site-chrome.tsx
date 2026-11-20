@@ -38,18 +38,6 @@ function ThemeToggle() {
 }
 
 export function SiteHeader() {
-  // Identity emails (invite, password recovery) link to the site root;
-  // forward their tokens to the admin page, which handles them.
-  useEffect(() => {
-    const hash = window.location.hash
-    if (
-      window.location.pathname !== '/admin' &&
-      /(invite|recovery|confirmation)_token=/.test(hash)
-    ) {
-      window.location.replace(`/admin${hash}`)
-    }
-  }, [])
-
   return (
     <header className="bg-[var(--registry-navy)] text-white print:hidden">
       <div className="h-1 bg-[var(--registry-red)]" />

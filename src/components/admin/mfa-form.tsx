@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import type { User } from '@netlify/identity'
+import type { AuthUser } from '@/lib/auth-types'
 import { toast } from 'sonner'
 
 import { Panel } from '@/components/admin/panel'
@@ -14,7 +14,7 @@ export function MfaForm({
   onVerified,
   onLogout,
 }: {
-  user: User
+  user: AuthUser
   onVerified: () => void
   onLogout: () => void
 }) {

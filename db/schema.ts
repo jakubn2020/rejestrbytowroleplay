@@ -1,4 +1,5 @@
-import { boolean, integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { boolean, integer, pgTable, serial, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 export const practitioners = pgTable('practitioners', {
   id: serial().primaryKey(),
@@ -117,4 +118,29 @@ export const entryRequests = pgTable('entry_requests', {
   decidedBy: text('decided_by'),
   decidedAt: timestamp('decided_at'),
   note: text(),
+})
+
+/**
+ * Staff accounts (replaces Netlify Identity). `roles` is a comma-free list stored as
+ * text[]: 'admin' and/or 'kierownictwo'. Passwords are PBKDF2 hashes (see src/lib/password.ts).
+ */
+export const users = pgTable('users', {
+  id: uuid().primaryKey().defaultRandom(),
+  email: text().notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  roles: text().array().notNull().default(sql`ARRAY[]::text[]`),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: text('created_by'),
+})
+
+export type User = typeof users.$inferSelect
+
+/** Password-login sessions (cookie holds the token, only its hash is stored). */
+export const authSessions = pgTable('auth_sessions', {
+  tokenHash: text('token_hash').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 })

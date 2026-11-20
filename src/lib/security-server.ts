@@ -4,7 +4,6 @@
  * Only import this from server functions / middleware.
  */
 import { createHash, randomBytes } from 'node:crypto'
-import { admin } from '@netlify/identity'
 import { getRequestHeader, setResponseHeader } from '@tanstack/react-start/server'
 import { and, eq, gt, lt, sql } from 'drizzle-orm'
 
@@ -15,6 +14,7 @@ import {
   mfaSessions,
   searchAttempts,
   securityEvents,
+  users,
 } from '../../db/schema'
 import {
   MANAGEMENT_COOLDOWN_SECONDS,
@@ -63,9 +63,9 @@ export async function sendEmail(
   }
 }
 
-/** Client IP as seen by Netlify; null when unknown (e.g. local dev). */
+/** Client IP as seen by Cloudflare; null when unknown (e.g. local dev). */
 export function clientIp(): string | null {
-  const direct = getRequestHeader('x-nf-client-connection-ip')
+  const direct = getRequestHeader('cf-connecting-ip')
   if (direct) return direct
   const forwarded = getRequestHeader('x-forwarded-for')
   return forwarded?.split(',')[0]?.trim() || null
@@ -295,13 +295,9 @@ async function adminEmails(): Promise<string[]> {
   }
   const emails = new Set<string>()
   try {
-    const perPage = 100
-    for (let page = 1; page <= 20; page++) {
-      const users = await admin.listUsers({ page, perPage })
-      for (const user of users) {
-        if (user.email && user.roles?.includes(ROLE_ADMIN)) emails.add(user.email)
-      }
-      if (users.length < perPage) break
+    const rows = await db.select({ email: users.email, roles: users.roles }).from(users)
+    for (const row of rows) {
+      if (row.roles.includes(ROLE_ADMIN)) emails.add(row.email)
     }
   } catch (error) {
     console.error('Nie udało się pobrać adresów administratorów', error)
@@ -312,7 +308,7 @@ async function adminEmails(): Promise<string[]> {
 }
 
 function siteUrl(): string {
-  return process.env.URL ?? ''
+  return process.env.SITE_URL ?? ''
 }
 
 /** E-mails every admin (only when e-mail sending is configured). Never throws. */

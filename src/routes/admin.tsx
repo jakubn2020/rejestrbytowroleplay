@@ -1,15 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import {
-  acceptInvite,
-  getUser,
-  handleAuthCallback,
-  login,
-  logout,
-  updateUser,
-  type User,
-} from '@netlify/identity'
-import {
   ArrowDown,
   ArrowUp,
   BadgeCheck,
@@ -24,6 +15,7 @@ import {
   Search,
   ShieldAlert,
   Trash2,
+  ShieldPlus,
   UserCog,
   UserPlus,
   Users,
@@ -65,11 +57,14 @@ import {
   type EntryStatus,
 } from '@/lib/registry'
 import {
+  addAdmin,
   addManagement,
   addPractitioner,
+  deleteAdmin,
   deleteManagement,
   deletePractitioner,
   findPeselMatches,
+  listAdmins,
   listManagement,
   listPractitioners,
   revealPesel,
@@ -93,7 +88,8 @@ import {
 import { SessionsDialog } from '@/components/admin/sessions-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
 import { getAdminCounts } from '@/lib/alerts.functions'
-import { checkLoginAllowed, reportLoginFailure } from '@/lib/login-guard.functions'
+import { currentUser, loginUser, logoutUser } from '@/lib/auth.functions'
+import type { AuthUser } from '@/lib/auth-types'
 import {
   endMfaSession,
   getMfaStatus,
@@ -113,17 +109,15 @@ export const Route = createFileRoute('/admin')({
 type Auth =
   | { phase: 'loading' }
   | { phase: 'signed-out' }
-  | { phase: 'invite'; token: string }
-  | { phase: 'recovery' }
-  | { phase: 'mfa'; user: User }
-  | { phase: 'signed-in'; user: User }
+  | { phase: 'mfa'; user: AuthUser }
+  | { phase: 'signed-in'; user: AuthUser }
 
 /**
  * Where an authenticated user goes next: the e-mail code step (if enabled) or the panel.
  * `fresh` is true right after a password login. Without e-mail codes a panel session is
  * only started then, so a device that was signed out remotely has to log in again.
  */
-async function resolveAuth(user: User, fresh: boolean): Promise<Auth> {
+async function resolveAuth(user: AuthUser, fresh: boolean): Promise<Auth> {
   // If the status cannot be read, fail closed and ask for the code.
   const status = await getMfaStatus().catch(() => ({
     required: true,
@@ -146,20 +140,7 @@ function AdminPage() {
   useEffect(() => {
     let active = true
     async function init() {
-      try {
-        const callback = await handleAuthCallback()
-        if (callback?.type === 'invite' && callback.token) {
-          if (active) setAuth({ phase: 'invite', token: callback.token })
-          return
-        }
-        if (callback?.type === 'recovery') {
-          if (active) setAuth({ phase: 'recovery' })
-          return
-        }
-      } catch {
-        toast.error('Link z wiadomości e-mail jest nieprawidłowy lub wygasł.')
-      }
-      const user = await getUser().catch(() => null)
+      const user = await currentUser().catch(() => null)
       const next: Auth = user
         ? await resolveAuth(user, false)
         : { phase: 'signed-out' }
@@ -171,13 +152,13 @@ function AdminPage() {
     }
   }, [])
 
-  async function enter(user: User) {
+  async function enter(user: AuthUser) {
     setAuth(await resolveAuth(user, true))
   }
 
   async function signOut() {
     await endMfaSession().catch(() => undefined)
-    await logout().catch(() => undefined)
+    await logoutUser().catch(() => undefined)
     setAuth({ phase: 'signed-out' })
   }
 
@@ -192,20 +173,6 @@ function AdminPage() {
         )}
         {auth.phase === 'signed-out' && (
           <LoginForm onDone={(user) => void enter(user)} />
-        )}
-        {auth.phase === 'invite' && (
-          <PasswordForm
-            title="Ustaw hasło do konta administratora"
-            onSubmit={(password) => acceptInvite(auth.token, password)}
-            onDone={(user) => void enter(user)}
-          />
-        )}
-        {auth.phase === 'recovery' && (
-          <PasswordForm
-            title="Ustaw nowe hasło"
-            onSubmit={(password) => updateUser({ password })}
-            onDone={(user) => void enter(user)}
-          />
         )}
         {auth.phase === 'mfa' && (
           <MfaForm
@@ -222,7 +189,7 @@ function AdminPage() {
   )
 }
 
-function LoginForm({ onDone }: { onDone: (user: User) => void }) {
+function LoginForm({ onDone }: { onDone: (user: AuthUser) => void }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -233,16 +200,20 @@ function LoginForm({ onDone }: { onDone: (user: User) => void }) {
     setError(null)
     const email = String(fields.get('email'))
     try {
-      const gate = await checkLoginAllowed().catch(() => ({ allowed: true }))
-      if (!gate.allowed) {
-        setError('Zbyt wiele nieudanych prób logowania. Spróbuj ponownie za 15 minut.')
+      const result = await loginUser({
+        data: { email, password: String(fields.get('password')) },
+      })
+      if (!result.ok) {
+        setError(
+          result.reason === 'blocked'
+            ? 'Zbyt wiele nieudanych prób logowania. Spróbuj ponownie za 15 minut.'
+            : 'Nieprawidłowy e-mail lub hasło.',
+        )
         return
       }
-      const user = await login(email, String(fields.get('password')))
-      onDone(user)
+      onDone(result.user)
     } catch {
-      void reportLoginFailure({ data: { email } }).catch(() => undefined)
-      setError('Nieprawidłowy e-mail lub hasło.')
+      setError('Nie udało się zalogować. Spróbuj ponownie.')
     } finally {
       setPending(false)
     }
@@ -274,66 +245,6 @@ function LoginForm({ onDone }: { onDone: (user: User) => void }) {
           )}
           <Button type="submit" className="w-full" disabled={pending}>
             {pending ? 'Logowanie…' : 'Zaloguj się'}
-          </Button>
-        </form>
-      </Panel>
-    </div>
-  )
-}
-
-function PasswordForm({
-  title,
-  onSubmit,
-  onDone,
-}: {
-  title: string
-  onSubmit: (password: string) => Promise<User>
-  onDone: (user: User) => void
-}) {
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const password = String(new FormData(event.currentTarget).get('password'))
-    if (password.length < 8) {
-      setError('Hasło musi mieć co najmniej 8 znaków.')
-      return
-    }
-    setPending(true)
-    setError(null)
-    try {
-      onDone(await onSubmit(password))
-      toast.success('Hasło zostało ustawione.')
-    } catch {
-      setError('Nie udało się ustawić hasła. Link mógł wygasnąć.')
-    } finally {
-      setPending(false)
-    }
-  }
-
-  return (
-    <div className="max-w-md">
-      <Panel>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <form onSubmit={submit} className="mt-4 space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="new-password">Hasło</Label>
-            <Input
-              id="new-password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              required
-            />
-          </div>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          <Button type="submit" className="w-full" disabled={pending}>
-            {pending ? 'Zapisywanie…' : 'Zapisz hasło'}
           </Button>
         </form>
       </Panel>
@@ -449,13 +360,15 @@ function SortHead({
   )
 }
 
-function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
+function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const isAdmin = user.roles?.includes(ROLE_ADMIN) ?? false
   const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
   const canAdd = isAdmin || isManagement
   const [rows, setRows] = useState<Row[] | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
   const [managementOpen, setManagementOpen] = useState(false)
+  const [adminDialogOpen, setAdminDialogOpen] = useState(false)
+  const [showAdmins, setShowAdmins] = useState(false)
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [showManagement, setShowManagement] = useState(false)
@@ -628,6 +541,19 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
           >
             <Users className="size-4" /> Konta kierownictwa
           </Button>
+          {user.isSuperAdmin && (
+            <>
+              <Button variant="outline" onClick={() => setAdminDialogOpen(true)}>
+                <ShieldPlus className="size-4" /> Dodaj administratora
+              </Button>
+              <Button
+                variant={showAdmins ? 'default' : 'outline'}
+                onClick={() => setShowAdmins((open) => !open)}
+              >
+                <Users className="size-4" /> Konta administratorów
+              </Button>
+            </>
+          )}
           <Button
             variant={showRequests ? 'default' : 'outline'}
             onClick={() => setShowRequests((open) => !open)}
@@ -669,6 +595,13 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
           onChanged={() => setLogVersion((version) => version + 1)}
         />
       )}
+      {user.isSuperAdmin && showAdmins && (
+        <ManagementPanel
+          key={`admins-${logVersion}`}
+          kind="admin"
+          onChanged={() => setLogVersion((version) => version + 1)}
+        />
+      )}
       {isAdmin && showAlerts && (
         <AlertsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
       )}
@@ -689,6 +622,14 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
             onClose={() => setManagementOpen(false)}
             onCreated={() => setLogVersion((version) => version + 1)}
           />
+          {user.isSuperAdmin && (
+            <ManagementDialog
+              kind="admin"
+              open={adminDialogOpen}
+              onClose={() => setAdminDialogOpen(false)}
+              onCreated={() => setLogVersion((version) => version + 1)}
+            />
+          )}
         </>
       )}
 
@@ -698,7 +639,7 @@ function SignedIn({ user, onLogout }: { user: User; onLogout: () => void }) {
             To konto nie ma uprawnień do panelu. Nadaj mu rolę{' '}
             <code className="rounded bg-muted px-1">{ROLE_ADMIN}</code> lub{' '}
             <code className="rounded bg-muted px-1">{ROLE_MANAGEMENT}</code> w
-            ustawieniach Netlify Identity, a następnie zaloguj się ponownie.
+            panelu właściciela, a następnie zaloguj się ponownie.
           </p>
         </Panel>
       ) : (
@@ -962,7 +903,15 @@ const filterSelectClass =
 
 type ManagementRow = Awaited<ReturnType<typeof listManagement>>[number]
 
-function ManagementPanel({ onChanged }: { onChanged: () => void }) {
+function ManagementPanel({
+  onChanged,
+  kind = 'management',
+}: {
+  onChanged: () => void
+  kind?: 'management' | 'admin'
+}) {
+  const isAdminKind = kind === 'admin'
+  const accountLabel = isAdminKind ? 'administratora' : 'kierownictwa'
   const [rows, setRows] = useState<ManagementRow[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [resetTarget, setResetTarget] = useState<ManagementRow | null>(null)
@@ -970,12 +919,12 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
   const load = useCallback(async () => {
     setFailed(false)
     try {
-      setRows(await listManagement())
+      setRows(await (isAdminKind ? listAdmins() : listManagement()))
     } catch {
       setFailed(true)
       setRows([])
     }
-  }, [])
+  }, [isAdminKind])
 
   useEffect(() => {
     void load()
@@ -984,18 +933,20 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
   async function remove(row: ManagementRow) {
     if (
       !confirm(
-        `Usunąć konto kierownictwa ${row.email}? Ta osoba nie będzie mogła się już zalogować.`,
+        `Usunąć konto ${accountLabel} ${row.email}? Ta osoba nie będzie mogła się już zalogować.`,
       )
     ) {
       return
     }
     try {
-      const result = await deleteManagement({ data: { id: row.id } })
+      const result = await (isAdminKind ? deleteAdmin : deleteManagement)({
+        data: { id: row.id },
+      })
       if (!result.ok) {
         toast.error(result.error)
         return
       }
-      toast.success('Konto kierownictwa usunięte.')
+      toast.success(isAdminKind ? 'Konto administratora usunięte.' : 'Konto kierownictwa usunięte.')
       onChanged() // remounts this panel, which reloads the list
     } catch {
       toast.error('Nie udało się usunąć konta.')
@@ -1006,7 +957,7 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
     <Panel>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <Users className="size-5" /> Konta kierownictwa
+          <Users className="size-5" /> Konta {isAdminKind ? 'administratorów' : 'kierownictwa'}
           {rows && !failed ? ` (${rows.length})` : ''}
         </h2>
         <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -1014,6 +965,7 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
         </Button>
       </div>
       <ResetManagementPasswordDialog
+        kind={kind}
         target={resetTarget}
         onClose={() => setResetTarget(null)}
         onDone={onChanged}
@@ -1022,12 +974,13 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
         <p className="mt-4 text-muted-foreground">Wczytywanie…</p>
       ) : failed ? (
         <p role="alert" className="mt-4 text-sm text-destructive">
-          Nie udało się wczytać kont kierownictwa.
+          Nie udało się wczytać kont {isAdminKind ? 'administratorów' : 'kierownictwa'}.
         </p>
       ) : rows.length === 0 ? (
         <p className="mt-4 text-muted-foreground">
-          Brak kont kierownictwa. Dodaj pierwsze przyciskiem „Dodaj
-          kierownictwo”.
+          {isAdminKind
+            ? 'Brak kont administratorów.'
+            : 'Brak kont kierownictwa. Dodaj pierwsze przyciskiem „Dodaj kierownictwo”.'}
         </p>
       ) : (
         <div className="mt-4">
@@ -1041,7 +994,10 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.email}</TableCell>
+                  <TableCell className="font-medium">
+                    {row.email}
+                    {row.isOwner ? ' (właściciel)' : ''}
+                  </TableCell>
                   <TableCell className="whitespace-nowrap">
                     <Button
                       variant="ghost"
@@ -1054,7 +1010,8 @@ function ManagementPanel({ onChanged }: { onChanged: () => void }) {
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label={`Usuń konto kierownictwa ${row.email}`}
+                      aria-label={`Usuń konto ${accountLabel} ${row.email}`}
+                      disabled={row.isOwner}
                       onClick={() => void remove(row)}
                     >
                       <Trash2 className="size-4 text-destructive" />
@@ -1074,11 +1031,14 @@ function ManagementDialog({
   open,
   onClose,
   onCreated,
+  kind = 'management',
 }: {
   open: boolean
   onClose: () => void
   onCreated: () => void
+  kind?: 'management' | 'admin'
 }) {
+  const isAdminKind = kind === 'admin'
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -1093,7 +1053,7 @@ function ManagementDialog({
     setPending(true)
     setError(null)
     try {
-      const result = await addManagement({
+      const result = await (isAdminKind ? addAdmin : addManagement)({
         data: {
           email: String(fields.get('email')),
           password: String(fields.get('password')),
@@ -1103,7 +1063,7 @@ function ManagementDialog({
         setError(result.error)
         return
       }
-      toast.success(`Dodano konto kierownictwa: ${result.email}`)
+      toast.success(`${isAdminKind ? 'Dodano konto administratora' : 'Dodano konto kierownictwa'}: ${result.email}`)
       form.reset()
       onCreated()
       onClose()
@@ -1118,12 +1078,11 @@ function ManagementDialog({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Dodaj konto kierownictwa</DialogTitle>
+          <DialogTitle>{isAdminKind ? 'Dodaj konto administratora' : 'Dodaj konto kierownictwa'}</DialogTitle>
           <DialogDescription>
-            Tworzy konto z rolą kierownictwo: składa wnioski o wpis (jeden na 5
-            minut, ze zrzutem ekranu; akceptuje je administrator), widzi PESEL
-            i tworzy plakietki, ale nie edytuje ani nie usuwa wpisów. Przekaż
-            osobie e-mail i hasło początkowe.
+            {isAdminKind
+              ? 'Tworzy konto z rolą admin: dodaje, edytuje i usuwa wpisy, akceptuje wnioski oraz zarządza kontami kierownictwa. Tylko właściciel może dodawać administratorów. Przekaż osobie e-mail i hasło początkowe.'
+              : 'Tworzy konto z rolą kierownictwo: składa wnioski o wpis (jeden na 5 minut, ze zrzutem ekranu; akceptuje je administrator), widzi PESEL i tworzy plakietki, ale nie edytuje ani nie usuwa wpisów. Przekaż osobie e-mail i hasło początkowe.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">

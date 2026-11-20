@@ -10,12 +10,13 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy": "pnpm build && wrangler deploy",
+    "create-user": "tsx scripts/create-user.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.1",
-    "@netlify/database": "^2.0.1",
-    "@netlify/identity": "^2.0.0",
+    "@neondatabase/serverless": "^1.2.1",
     "@radix-ui/react-accordion": "1.3.1",
     "@radix-ui/react-checkbox": "1.4.1",
     "@radix-ui/react-dialog": "1.3.1",
@@ -44,8 +45,8 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.70.0",
     "@eslint/js": "10.0.1",
-    "@netlify/vite-plugin-tanstack-start": "1.3.19",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
@@ -60,11 +61,13 @@
     "jsdom": "29.1.1",
     "prettier": "3.9.10",
     "tailwindcss": "4.3.3",
+    "tsx": "^4.23.15",
     "tw-animate-css": "1.4.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
     "vite": "8.3.4",
-    "vitest": "5.0.4"
+    "vitest": "5.0.4",
+    "wrangler": "^4.165.0"
   },
   "engines": {
     "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
