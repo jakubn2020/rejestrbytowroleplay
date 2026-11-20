@@ -50,6 +50,7 @@ import {
   ROLE_MANAGEMENT,
   TRASH_RETENTION_DAYS,
   formatDate,
+  validityLabel,
   isParamedic,
   isPesel,
   isPwz,
@@ -80,6 +81,11 @@ import {
 } from '@/components/admin/password-dialogs'
 import { AlertsPanel } from '@/components/admin/alerts-panel'
 import { ReportsPanel } from '@/components/admin/reports-panel'
+import {
+  ExpiryField,
+  resolveExpiry,
+  type ExpiryChoice,
+} from '@/components/admin/expiry-field'
 import { RequestForm } from '@/components/admin/request-form'
 import {
   MyRequestsPanel,
@@ -786,6 +792,9 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                         <TableCell>{row.specialization}</TableCell>
                         <TableCell>
                           <StatusBadge status={row.status} />
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Ważność: {validityLabel(row.expiresAt)}
+                          </p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <Button
@@ -897,6 +906,9 @@ function PeselCell({ id }: { id: number }) {
     </button>
   )
 }
+
+const KEEP_EXPIRY: ExpiryChoice = { mode: 'keep', amount: '', unit: 'months' }
+const LIFETIME_EXPIRY: ExpiryChoice = { mode: 'lifetime', amount: '', unit: 'months' }
 
 const filterSelectClass =
   'h-9 rounded-md border border-input bg-white px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50'
@@ -1140,6 +1152,7 @@ function EditDialog({
   const [pwz, setPwz] = useState('')
   const [specialization, setSpecialization] = useState('')
   const [status, setStatus] = useState<EntryStatus>('active')
+  const [expiry, setExpiry] = useState<ExpiryChoice>(KEEP_EXPIRY)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const paramedic = row ? isParamedic(row.profession) : false
@@ -1151,7 +1164,8 @@ function EditDialog({
     setPesel('')
     setPwz(row?.pwz ?? '')
     setSpecialization(row?.rawSpecialization ?? '')
-    setStatus(row?.status ?? 'active')
+    setStatus(row?.storedStatus ?? 'active')
+    setExpiry(KEEP_EXPIRY)
     setError(null)
     if (!row) return
     let active = true
@@ -1182,6 +1196,11 @@ function EditDialog({
       setError('Numer PWZ musi składać się z 7 cyfr.')
       return
     }
+    const resolved = resolveExpiry(expiry)
+    if (!resolved.ok) {
+      setError(resolved.error)
+      return
+    }
     setPending(true)
     setError(null)
     try {
@@ -1192,6 +1211,7 @@ function EditDialog({
           pwz,
           specialization: paramedic ? undefined : specialization,
           status,
+          expiresAt: resolved.value,
         },
       })
       if (!result.ok) {
@@ -1282,6 +1302,13 @@ function EditDialog({
               ))}
             </select>
           </div>
+          <ExpiryField
+            id="edit-expiry"
+            value={expiry}
+            onChange={setExpiry}
+            allowKeep
+            currentLabel={validityLabel(row?.expiresAt ?? null)}
+          />
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -1306,6 +1333,7 @@ const selectClass =
 
 /** Admin only: adds a person directly (kierownictwo uses RequestForm instead). */
 function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
+  const [expiry, setExpiry] = useState<ExpiryChoice>(LIFETIME_EXPIRY)
   const [pesel, setPesel] = useState('')
   const [profession, setProfession] = useState<string>(PROFESSIONS[0])
   const [pending, setPending] = useState(false)
@@ -1320,11 +1348,17 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
       setError('PESEL musi składać się z samych cyfr (co najmniej jednej).')
       return
     }
+    const resolved = resolveExpiry(expiry)
+    if (!resolved.ok) {
+      setError(resolved.error)
+      return
+    }
     setPending(true)
     setError(null)
     try {
       const result = await addPractitioner({
         data: {
+          expiresAt: resolved.value ?? null,
           pesel,
           firstName: String(fields.get('firstName')),
           lastName: String(fields.get('lastName')),
@@ -1341,6 +1375,7 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
       toast.success(`Dodano do rejestru. Numer PWZ: ${result.pwz}`)
       form.reset()
       setPesel('')
+      setExpiry(LIFETIME_EXPIRY)
       await onAdded()
     } catch {
       setError('Nie udało się zapisać wpisu.')
@@ -1410,6 +1445,9 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
               maxLength={160}
             />
           )}
+        </div>
+        <div className="sm:col-span-2">
+          <ExpiryField id="add-expiry" value={expiry} onChange={setExpiry} />
         </div>
         {error && (
           <p role="alert" className="text-sm text-destructive sm:col-span-2">

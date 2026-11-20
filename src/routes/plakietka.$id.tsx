@@ -9,6 +9,7 @@ import {
   CERTIFICATE_ISSUER,
   ENTRY_STATUSES,
   professionKind,
+  validityLabel,
   verificationPath,
   type ProfessionKind,
 } from '@/lib/registry'
@@ -199,7 +200,9 @@ function BadgeView({ badge }: { badge: Badge }) {
             </div>
 
             <div className="mt-auto border-t border-black/20 pt-[0.8mm] text-[3.6pt] leading-tight">
-              <p>{CERTIFICATE_ISSUER}</p>
+              <p>
+                {CERTIFICATE_ISSUER} · Ważność: {validityLabel(badge.expiresAt)}
+              </p>
               <p className="italic">
                 Dokument fikcyjny, wystawiony wyłącznie na potrzeby roleplayu.
               </p>

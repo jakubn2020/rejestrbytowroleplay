@@ -5,7 +5,7 @@ import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatDate, type EntryStatus } from '@/lib/registry'
+import { formatDate, validityLabel, type EntryStatus } from '@/lib/registry'
 import {
   getPublicStats,
   searchRegistry,
@@ -126,6 +126,7 @@ function Home() {
                     <Field label="Specjalizacja" value={entry.specialization} />
                     <Field label="Numer wpisu" value={entry.entryNumber} mono />
                     <Field label="Data wpisu" value={formatDate(entry.entryDate)} />
+                    <Field label="Ważność PWZ" value={validityLabel(entry.expiresAt)} />
                   </dl>
                 </article>
               ))}

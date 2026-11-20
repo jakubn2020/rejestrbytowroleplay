@@ -16,6 +16,8 @@ export const practitioners = pgTable('practitioners', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   /** Set when the entry is moved to the trash; null for live entries. */
   deletedAt: timestamp('deleted_at'),
+  /** End of the PWZ validity; null = lifetime. After this moment the entry counts as "expired". */
+  expiresAt: timestamp('expires_at'),
 })
 
 export type Practitioner = typeof practitioners.$inferSelect

@@ -16,9 +16,12 @@ export const practitionerInput = z
     lastName: z.string().trim().min(1).max(80),
     profession: z.enum(PROFESSIONS),
     specialization: z.string().trim().max(160).optional(),
+    /** ISO date when the PWZ expires; null/absent = lifetime (admin only, ignored for requests). */
+    expiresAt: z.string().datetime().nullable().optional(),
   })
   .transform((value) => ({
     ...value,
+    expiresAt: value.expiresAt ? new Date(value.expiresAt) : null,
     specialization:
       isParamedic(value.profession) ? null : value.specialization || null,
   }))
@@ -30,4 +33,5 @@ export type PractitionerData = {
   lastName: string
   profession: string
   specialization: string | null
+  expiresAt?: Date | null
 }

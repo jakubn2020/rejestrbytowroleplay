@@ -46,6 +46,10 @@ Po zmianie `db/schema.ts` wygeneruj migrację: `DATABASE_URL=... npx drizzle-kit
 
 Role nadaje się przy zakładaniu konta: kierownictwo dodaje każdy administrator, a administratorów dodaje tylko właściciel (konto z `SUPERADMIN_EMAIL`), w sekcji „Dodaj administratora” i „Konta administratorów”. Konta właściciela nie da się usunąć z panelu.
 
+## Ważność PWZ
+
+Domyślnie PWZ jest **dożywotni**. Admin może przy dodawaniu albo edycji ustawić, że wygasa za 3 miesiące albo za własną liczbę dni lub miesięcy (liczone od dziś). Po upływie terminu wpis sam staje się „Nieaktywny”: wyszukiwarka pokazuje to w statusie, kod QR na plakietce pokazuje „NIE”, a wpis przestaje liczyć się w statystykach. Termin można w każdej chwili zmienić (np. na „Dożywotnio”). Zmiany są w dzienniku zdarzeń.
+
 ## Status wpisu
 
 Każdy wpis jest fabrycznie **aktywny**. Admin może ręcznie zmienić go na **zawieszony** lub **nieaktywny** (okno edycji). Taki wpis jest pokazywany w wyszukiwarce z odpowiednią etykietą, nie ma zaświadczenia, a kod QR na plakietce pokazuje „NIE”.

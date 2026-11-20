@@ -4,6 +4,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   isNotNull,
   isNull,
   like,
@@ -34,7 +35,9 @@ import {
   ROLE_MANAGEMENT,
   TRASH_RETENTION_DAYS,
   entryNumber,
+  effectiveStatus,
   isParamedic,
+  validityLabel,
   professionKind,
   type EntryStatus,
   type PublicEntry,
@@ -57,9 +60,10 @@ function toPublic(row: Practitioner): PublicEntry {
     profession: row.profession,
     specialization:
       isParamedic(row.profession) ? 'nd.' : row.specialization || 'brak',
-    status: toStatus(row.status),
+    status: effectiveStatus(toStatus(row.status), row.expiresAt),
     entryNumber: entryNumber(row.id),
     entryDate: row.createdAt.toISOString(),
+    expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
   }
 }
 
@@ -137,6 +141,8 @@ export const listPractitioners = createServerFn({ method: 'GET' })
       // The PESEL is not part of the list: it is fetched (and audited) with `revealPesel`.
       // Raw value (or null) so the admin edit form can be prefilled.
       rawSpecialization: row.specialization,
+      /** The status as stored (the `status` below also reflects an expired validity). */
+      storedStatus: toStatus(row.status),
       createdBy: row.createdBy,
       ...toPublic(row),
     }))
@@ -189,7 +195,13 @@ export const getPublicStats = createServerFn({ method: 'GET' }).handler(
         n: sql<string>`count(*)`,
       })
       .from(practitioners)
-      .where(and(alive, eq(practitioners.status, 'active')))
+      .where(
+        and(
+          alive,
+          eq(practitioners.status, 'active'),
+          or(isNull(practitioners.expiresAt), gt(practitioners.expiresAt, sql`now()`)),
+        ),
+      )
       .groupBy(practitioners.profession)
     const stats = { doctors: 0, nurses: 0, paramedics: 0 }
     for (const row of rows) {
@@ -210,6 +222,9 @@ export const addPractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(practitionerInput)
   .handler(async ({ data, context }): Promise<AddResult> => {
+    if (data.expiresAt && data.expiresAt <= new Date()) {
+      return { ok: false, error: 'Termin ważności musi być w przyszłości.' }
+    }
     const result = await insertPractitioner(data, context.identity)
     if (!result.ok) return result
     await logEvent({
@@ -219,6 +234,7 @@ export const addPractitioner = createServerFn({ method: 'POST' })
       target: `${data.firstName} ${data.lastName} (PWZ ${result.pwz})`,
       details: [
         `Zawód: ${data.profession}`,
+        `ważność: ${validityLabel(data.expiresAt ? data.expiresAt.toISOString() : null)}`,
         data.specialization ? `specjalizacja: ${data.specialization}` : null,
       ]
         .filter(Boolean)
@@ -236,6 +252,8 @@ const updateInput = z.object({
     .regex(/^\d{7}$/, 'Numer PWZ musi składać się z 7 cyfr'),
   specialization: z.string().trim().max(160).optional(),
   status: z.enum(ENTRY_STATUS_KEYS),
+  /** undefined = leave the validity unchanged, null = lifetime, otherwise a future ISO date. */
+  expiresAt: z.string().datetime().nullable().optional(),
 })
 
 export type UpdateResult = { ok: true } | { ok: false; error: string }
@@ -276,6 +294,13 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
             : `Numer PWZ ${data.pwz} jest już przypisany do innej osoby.`,
       }
     }
+    let expiresAt = existing.expiresAt
+    if (data.expiresAt !== undefined) {
+      expiresAt = data.expiresAt ? new Date(data.expiresAt) : null
+      if (expiresAt && expiresAt <= new Date()) {
+        return { ok: false, error: 'Termin ważności musi być w przyszłości.' }
+      }
+    }
     // Paramedics never have a specialization (shown as "nd.").
     const specialization = isParamedic(existing.profession)
       ? null
@@ -287,6 +312,7 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
         pwz: data.pwz,
         specialization,
         status: data.status,
+        expiresAt,
       })
       .where(eq(practitioners.id, data.id))
 
@@ -306,6 +332,11 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
       changes.push(
         `status: ${ENTRY_STATUSES[toStatus(existing.status)]} → ${ENTRY_STATUSES[data.status]}`,
       )
+    }
+    const before = existing.expiresAt ? existing.expiresAt.toISOString() : null
+    const after = expiresAt ? expiresAt.toISOString() : null
+    if (before !== after) {
+      changes.push(`ważność: ${validityLabel(before)} → ${validityLabel(after)}`)
     }
     await logEvent({
       actor: context.identity,
@@ -370,8 +401,9 @@ export const getBadge = createServerFn({ method: 'GET' })
       pesel: row.pesel,
       pwz: row.pwz,
       profession: row.profession,
-      status: toStatus(row.status),
+      status: effectiveStatus(toStatus(row.status), row.expiresAt),
       entryNumber: entryNumber(row.id),
+      expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
     }
   })
 
@@ -396,7 +428,7 @@ export const verifyEntry = createServerFn({ method: 'GET' })
       .where(and(eq(practitioners.pwz, data.pwz), alive))
       .limit(1)
     if (!row) return { status: 'not_found', pwz: data.pwz }
-    const status = toStatus(row.status)
+    const status = effectiveStatus(toStatus(row.status), row.expiresAt)
     if (status === 'suspended') return { status: 'suspended', pwz: data.pwz }
     if (status === 'expired') return { status: 'inactive', pwz: data.pwz }
     return {

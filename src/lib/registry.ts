@@ -115,6 +115,23 @@ export type PublicEntry = {
   entryNumber: string
   /** ISO timestamp of when the entry was created. */
   entryDate: string
+  /** ISO timestamp when the PWZ expires; null = lifetime. */
+  expiresAt: string | null
+}
+
+/** Stored status, except that an active entry whose validity has run out is "expired". */
+export function effectiveStatus(
+  stored: EntryStatus,
+  expiresAt: Date | string | null,
+  now: Date = new Date(),
+): EntryStatus {
+  if (stored === 'active' && expiresAt && new Date(expiresAt) <= now) return 'expired'
+  return stored
+}
+
+/** "dożywotnio" or "do 12.02.2027" */
+export function validityLabel(expiresAt: string | null): string {
+  return expiresAt ? `do ${formatDate(expiresAt)}` : 'dożywotnio'
 }
 
 /** Request statuses (kierownictwo asks, an admin decides). */

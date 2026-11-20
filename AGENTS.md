@@ -161,3 +161,5 @@ Then replace the placeholder heading and text in `src/routes/index.tsx`.
 - The list endpoint `listPractitioners` does not return PESEL; use `revealPesel` (audited via `logPeselView`) and `findPeselMatches` (server-side PESEL search). `getBadge` also logs a PESEL view.
 - Public reports: `src/lib/reports.functions.ts` + routes `zglos-blad` and `jak-to-dziala`; admin counts for toolbar badges: `getAdminCounts` in `src/lib/alerts.functions.ts`.
 - Dark mode: class `dark` on `<html>` set by an inline script in `src/routes/__root.tsx` and toggled in `SiteHeader`; fixed light colours are overridden in `src/styles.css` (`@media screen`).
+
+- PWZ validity: `practitioners.expires_at` (null = lifetime). Always read the status through `effectiveStatus` (registry.ts), which turns an `active` entry past its date into `expired`; `listPractitioners` also returns `storedStatus` for the edit form. Only admins set it (`ExpiryField` in `src/components/admin/expiry-field.tsx`, `addPractitioner` / `updatePractitioner`).
