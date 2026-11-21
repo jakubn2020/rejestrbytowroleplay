@@ -178,7 +178,7 @@ function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1175px] px-5 py-12">
+    <div className="mx-auto max-w-[1290px] px-5 py-12">
       <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
         Panel administratora
       </h1>
@@ -796,7 +796,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                       <SortHead label="Zawód" sortKey="profession" sort={sort} onSort={toggleSort} />
                       <TableHead>Specjalizacja</TableHead>
                       <SortHead label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
-                      <TableHead className={isAdmin ? 'w-32' : 'w-14'} />
+                      <TableHead className={isAdmin ? 'w-36' : 'w-24'} />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
