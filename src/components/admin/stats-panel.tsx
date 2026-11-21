@@ -140,6 +140,7 @@ export function StatsPanel() {
               <tr>
                 <th className="px-3 py-2">#</th>
                 <th className="px-3 py-2">Konto</th>
+                <th className="px-3 py-2">Odznaka</th>
                 <th className="px-3 py-2">Wnioski</th>
                 <th className="px-3 py-2">Przyjęte</th>
                 <th className="px-3 py-2">Odrzucone</th>
@@ -152,6 +153,7 @@ export function StatsPanel() {
                 <tr key={row.identity}>
                   <td className="px-3 py-2 font-mono">{index + 1}</td>
                   <td className="px-3 py-2">{row.identity}</td>
+                  <td className="px-3 py-2">{row.badge ?? '—'}</td>
                   <td className="px-3 py-2 font-mono">{row.requests}</td>
                   <td className="px-3 py-2 font-mono">{row.approved}</td>
                   <td className="px-3 py-2 font-mono">{row.rejected}</td>

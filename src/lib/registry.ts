@@ -73,6 +73,8 @@ export const AUDIT_ACTION_LABELS = {
   request_approve: 'Zaakceptowano wniosek o wpis',
   request_reject: 'Odrzucono wniosek o wpis',
   maintenance: 'Tryb awaryjny rejestru',
+  revoke_account: 'Wylogowano konto ze wszystkich urządzeń',
+  logout_everyone: 'Wylogowano wszystkich użytkowników',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS
@@ -205,4 +207,13 @@ export function describeExpiryChoice(
   if (mode === 'lifetime') return 'dożywotnio'
   if (mode === 'months3') return 'wygasa za 3 miesiące'
   return `wygasa za ${amount ?? '?'} ${unit === 'days' ? 'dni' : 'mies.'}`
+}
+
+/** Badge of a kierownictwo account, based on how many of its requests were approved. */
+export function managementBadge(approved: number): string | null {
+  if (approved >= 100) return 'Mistrz wniosków'
+  if (approved >= 50) return 'Doświadczony'
+  if (approved >= 10) return 'Sprawny'
+  if (approved >= 1) return 'Początkujący'
+  return null
 }

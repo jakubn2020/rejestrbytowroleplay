@@ -12,6 +12,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.9',
+    date: '2026-11-21',
+    title: 'Centrum bezpieczeństwa, odznaki i myśl dnia',
+    changes: [
+      'Centrum bezpieczeństwa dla właściciela: przegląd, wszystkie aktywne sesje, wylogowanie konta lub wszystkich użytkowników naraz, ostatnie zdarzenia.',
+      'Strona weryfikacji pokazuje także termin ważności PWZ.',
+      'Myśl dnia na stronie głównej.',
+      'Odznaki dla kierownictwa za przyjęte wnioski (progi 1, 10, 50 i 100) oraz w rankingu aktywności.',
+    ],
+  },
+  {
     version: '2.8',
     date: '2026-11-21',
     title: 'PESEL widoczny dla administratorów',

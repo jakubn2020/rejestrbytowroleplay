@@ -5,6 +5,7 @@ import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { quoteOfTheDay } from '@/lib/quotes'
 import { formatDate, validityLabel, type EntryStatus } from '@/lib/registry'
 import {
   getPublicStats,
@@ -26,6 +27,7 @@ type State =
 function Home() {
   const stats = Route.useLoaderData()
   const [query, setQuery] = useState('')
+  const quote = quoteOfTheDay()
   const [state, setState] = useState<State>({ phase: 'idle' })
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -87,6 +89,11 @@ function Home() {
           <Stat label="Ratowników medycznych" value={stats.paramedics} />
         </dl>
       )}
+
+      <figure className="mt-8 rounded-lg border border-dashed px-5 py-4 text-center">
+        <blockquote className="font-[family-name:var(--font-heading)] text-lg italic">„{quote.text}”</blockquote>
+        <figcaption className="mt-1 text-xs text-muted-foreground">Myśl dnia · {quote.author}</figcaption>
+      </figure>
 
       <section aria-live="polite" className="mt-8">
         {state.phase === 'error' && (

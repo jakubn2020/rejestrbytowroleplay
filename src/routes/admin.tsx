@@ -23,6 +23,7 @@ import {
   Users,
   X,
   Power,
+  ShieldCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -97,6 +98,7 @@ import {
   MyExpiryRequestsPanel,
 } from '@/components/admin/expiry-requests-panel'
 import { StatsPanel } from '@/components/admin/stats-panel'
+import { SecurityCenterPanel } from '@/components/admin/security-center-panel'
 import { RequestForm } from '@/components/admin/request-form'
 import {
   MyRequestsPanel,
@@ -105,6 +107,7 @@ import {
 import { SessionsDialog } from '@/components/admin/sessions-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
 import { getAdminCounts } from '@/lib/alerts.functions'
+import { getMyBadge } from '@/lib/activity.functions'
 import { getSiteStatus, setMaintenance } from '@/lib/site.functions'
 import { currentUser, loginUser, logoutUser } from '@/lib/auth.functions'
 import type { AuthUser } from '@/lib/auth-types'
@@ -395,6 +398,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [showReports, setShowReports] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
   const [showStats, setShowStats] = useState(false)
+  const [showSecurity, setShowSecurity] = useState(false)
   const [maintenance, setMaintenanceState] = useState<{ closed: boolean; message: string } | null>(null)
   const [expiryRow, setExpiryRow] = useState<Row | null>(null)
   const [sessionsOpen, setSessionsOpen] = useState(false)
@@ -599,6 +603,12 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                 <ShieldPlus className="size-4" /> Dodaj administratora
               </Button>
               <Button
+                variant={showSecurity ? 'default' : 'outline'}
+                onClick={() => setShowSecurity((open) => !open)}
+              >
+                <ShieldCheck className="size-4" /> Centrum bezpieczeństwa
+              </Button>
+              <Button
                 variant={showAdmins ? 'default' : 'outline'}
                 onClick={() => setShowAdmins((open) => !open)}
               >
@@ -693,6 +703,11 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           </div>
         </Closable>
       )}
+      {user.isSuperAdmin && showSecurity && (
+        <Closable onClose={() => setShowSecurity(false)}>
+          <SecurityCenterPanel />
+        </Closable>
+      )}
       {isAdmin && showStats && (
         <Closable onClose={() => setShowStats(false)}>
           <StatsPanel />
@@ -741,6 +756,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
             <AddForm onAdded={refreshAll} />
           ) : (
             <>
+              <MyBadgeLine />
               <RequestForm
                 onSubmitted={() => setLogVersion((version) => version + 1)}
               />
@@ -1244,6 +1260,23 @@ function ManagementDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** kierownictwo: shows the account's badge for approved requests. */
+function MyBadgeLine() {
+  const [info, setInfo] = useState<{ approved: number; badge: string | null } | null>(null)
+  useEffect(() => {
+    getMyBadge()
+      .then(setInfo)
+      .catch(() => undefined)
+  }, [])
+  if (!info) return null
+  return (
+    <p className="text-sm text-muted-foreground">
+      Twoja odznaka: <strong>{info.badge ?? 'jeszcze brak'}</strong> (przyjętych wniosków: {info.approved}).
+      Kolejne progi: 1, 10, 50 i 100.
+    </p>
   )
 }
 

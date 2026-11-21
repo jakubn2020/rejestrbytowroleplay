@@ -2,6 +2,7 @@ import { Link, createFileRoute } from '@tanstack/react-router'
 import { Check, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { validityLabel } from '@/lib/registry'
 import { verifyEntry, type VerifyResult } from '@/lib/registry.functions'
 
 export const Route = createFileRoute('/weryfikacja/$pwz')({
@@ -85,6 +86,8 @@ function VerifyPage() {
             </strong>
             <br />
             {result.profession}
+            <br />
+            <span className="text-sm">Ważność PWZ: {validityLabel(result.expiresAt)}</span>
           </p>
         )}
       </div>

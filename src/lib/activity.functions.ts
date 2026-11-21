@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { db } from '../../db'
 import { auditLog, entryRequests, expiryRequests } from '../../db/schema'
 import { requireAdmin } from './auth-server'
-import { ROLE_MANAGEMENT } from './registry'
+import { requireStaff } from './auth-server'
+import { ROLE_MANAGEMENT, managementBadge } from './registry'
 
 export type ManagementActivityRow = {
   identity: string
@@ -16,7 +17,34 @@ export type ManagementActivityRow = {
   peselViews: number
   /** Weighted score used for the ranking. */
   score: number
+  /** Badge for all-time approved requests (null before the first one). */
+  badge: string | null
 }
+
+/** All-time number of approved requests (entries and validity changes) per account. */
+async function approvedTotals(identity?: string): Promise<Map<string, number>> {
+  const totals = new Map<string, number>()
+  const entry = await db
+    .select({ who: entryRequests.requestedBy, n: sql<string>`count(*)` })
+    .from(entryRequests)
+    .where(and(eq(entryRequests.status, 'approved'), identity ? eq(entryRequests.requestedBy, identity) : undefined))
+    .groupBy(entryRequests.requestedBy)
+  const expiry = await db
+    .select({ who: expiryRequests.requestedBy, n: sql<string>`count(*)` })
+    .from(expiryRequests)
+    .where(and(eq(expiryRequests.status, 'approved'), identity ? eq(expiryRequests.requestedBy, identity) : undefined))
+    .groupBy(expiryRequests.requestedBy)
+  for (const r of [...entry, ...expiry]) totals.set(r.who, (totals.get(r.who) ?? 0) + Number(r.n))
+  return totals
+}
+
+/** Kierownictwo (or admin): the caller's own badge and approved-request count. */
+export const getMyBadge = createServerFn({ method: 'GET' })
+  .middleware([requireStaff])
+  .handler(async ({ context }) => {
+    const approved = (await approvedTotals(context.identity)).get(context.identity) ?? 0
+    return { approved, badge: managementBadge(approved) }
+  })
 
 /** Admin only: how active each kierownictwo account was in the last 7, 30 or 90 days. */
 export const getManagementActivity = createServerFn({ method: 'GET' })
@@ -28,7 +56,7 @@ export const getManagementActivity = createServerFn({ method: 'GET' })
     const row = (identity: string) => {
       let entry = map.get(identity)
       if (!entry) {
-        entry = { identity, requests: 0, approved: 0, rejected: 0, logins: 0, peselViews: 0, score: 0 }
+        entry = { identity, requests: 0, approved: 0, rejected: 0, logins: 0, peselViews: 0, score: 0, badge: null }
         map.set(identity, entry)
       }
       return entry
@@ -77,6 +105,10 @@ export const getManagementActivity = createServerFn({ method: 'GET' })
     }
 
     const rows = [...map.values()]
-    for (const r of rows) r.score = r.requests * 3 + r.approved + r.logins + r.peselViews
+    const totals = await approvedTotals()
+    for (const r of rows) {
+      r.score = r.requests * 3 + r.approved + r.logins + r.peselViews
+      r.badge = managementBadge(totals.get(r.identity) ?? 0)
+    }
     return rows.sort((a, b) => b.score - a.score).slice(0, 15)
   })

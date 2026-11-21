@@ -417,6 +417,7 @@ export type VerifyResult =
       lastName: string
       profession: string
       pwz: string
+      expiresAt: string | null
     }
   | { status: 'suspended' | 'inactive' | 'not_found' | 'limited'; pwz: string }
   | { status: 'closed'; pwz: string; message: string }
@@ -445,6 +446,7 @@ export const verifyEntry = createServerFn({ method: 'GET' })
       lastName: row.lastName,
       profession: row.profession,
       pwz: row.pwz,
+      expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
     }
   })
 
