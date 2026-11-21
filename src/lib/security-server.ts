@@ -374,16 +374,74 @@ export async function raiseAlert(opts: {
   }
 }
 
-/** Logs a successful panel login and raises an alert when the address was never seen for this account. */
+/** Short, readable description of a browser from its user-agent (e.g. "Chrome, Windows"). */
+export function describeDevice(userAgent: string | null): string {
+  if (!userAgent) return 'nieznane urządzenie'
+  const ua = userAgent
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\/|Opera/.test(ua)
+      ? 'Opera'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Chrome\//.test(ua)
+          ? 'Chrome'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : 'przeglądarka'
+  const system = /Windows/.test(ua)
+    ? 'Windows'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /iPhone|iPad|iOS/.test(ua)
+        ? 'iOS'
+        : /Mac OS X|Macintosh/.test(ua)
+          ? 'macOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : 'inny system'
+  return `${browser}, ${system}`
+}
+
+/**
+ * Logs a successful panel login. A browser/system combination never used by this account before
+ * raises an alert for the admins and e-mails the account owner; so does a new IP address.
+ */
 export async function recordLogin(identity: string) {
   const ip = clientIp()
+  const agent = clientUserAgent()
+  const device = `device:${sha256(describeDevice(agent)).slice(0, 16)}`
   try {
     const seenBefore = await countEvents({ kind: 'login', identity, minutes: 60 * 24 * 90 })
+    const [knownDevice] = await db
+      .select({ id: securityEvents.id })
+      .from(securityEvents)
+      .where(
+        and(
+          eq(securityEvents.kind, 'login'),
+          eq(securityEvents.identity, identity),
+          eq(securityEvents.details, device),
+        ),
+      )
+      .limit(1)
     const fromThisIp = ip
       ? await countEvents({ kind: 'login', identity, ip, minutes: 60 * 24 * 90 })
       : 1
-    await recordEvent({ kind: 'login', identity, ip })
-    if (seenBefore > 0 && fromThisIp === 0) {
+    await recordEvent({ kind: 'login', identity, ip, details: device })
+    if (seenBefore === 0) return
+    const label = describeDevice(agent)
+    if (!knownDevice) {
+      await raiseAlert({
+        kind: 'new_device',
+        identity,
+        details: `Konto ${identity} zalogowało się z nowego urządzenia: ${label} (adres IP ${ip ?? 'nieznany'}).`,
+      })
+      await notifyUser(
+        identity,
+        'Logowanie z nowego urządzenia – Centralny Rejestr',
+        `Twoje konto zalogowało się z nowego urządzenia: ${label}. Jeśli to nie Ty, zmień hasło i wyloguj się ze wszystkich urządzeń.`,
+      )
+    } else if (ip && fromThisIp === 0) {
       await raiseAlert({
         kind: 'new_ip',
         identity,

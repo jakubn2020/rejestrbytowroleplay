@@ -22,6 +22,7 @@ import {
   UserPlus,
   Users,
   X,
+  Power,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -104,6 +105,7 @@ import {
 import { SessionsDialog } from '@/components/admin/sessions-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
 import { getAdminCounts } from '@/lib/alerts.functions'
+import { getSiteStatus, setMaintenance } from '@/lib/site.functions'
 import { currentUser, loginUser, logoutUser } from '@/lib/auth.functions'
 import type { AuthUser } from '@/lib/auth-types'
 import {
@@ -393,6 +395,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [showReports, setShowReports] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
   const [showStats, setShowStats] = useState(false)
+  const [maintenance, setMaintenanceState] = useState<{ closed: boolean; message: string } | null>(null)
   const [expiryRow, setExpiryRow] = useState<Row | null>(null)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [counts, setCounts] = useState({ requests: 0, reports: 0, alerts: 0 })
@@ -422,6 +425,37 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   useEffect(() => {
     if (canAdd) void refresh()
   }, [canAdd, refresh])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    getSiteStatus()
+      .then(setMaintenanceState)
+      .catch(() => undefined)
+  }, [isAdmin])
+
+  async function toggleMaintenance() {
+    if (!maintenance) return
+    const closing = !maintenance.closed
+    let message: string | undefined
+    if (closing) {
+      const typed = window.prompt(
+        'Komunikat dla odwiedzających (zostaw puste, aby użyć domyślnego):',
+        '',
+      )
+      if (typed === null) return
+      message = typed
+    } else if (!window.confirm('Otworzyć rejestr ponownie dla odwiedzających?')) {
+      return
+    }
+    try {
+      const result = await setMaintenance({ data: { closed: closing, message } })
+      setMaintenanceState(result)
+      setLogVersion((version) => version + 1)
+      toast.success(closing ? 'Rejestr zamknięty (tryb awaryjny).' : 'Rejestr otwarty.')
+    } catch {
+      toast.error('Nie udało się zmienić trybu awaryjnego.')
+    }
+  }
 
   // What needs an admin's attention (requests, reports, alerts); checked every minute.
   useEffect(() => {
@@ -595,6 +629,14 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           >
             <ShieldAlert className="size-4" /> Alerty
             <CountBadge count={counts.alerts} />
+          </Button>
+          <Button
+            variant={maintenance?.closed ? 'destructive' : 'outline'}
+            disabled={maintenance === null}
+            onClick={() => void toggleMaintenance()}
+          >
+            <Power className="size-4" />{' '}
+            {maintenance?.closed ? 'Otwórz rejestr' : 'Tryb awaryjny'}
           </Button>
           <Button
             variant={showStats ? 'default' : 'outline'}

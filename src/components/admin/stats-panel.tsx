@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { BarChart3 } from 'lucide-react'
 
 import { Panel } from '@/components/admin/panel'
+import { getManagementActivity, type ManagementActivityRow } from '@/lib/activity.functions'
 import { getVisitStats, type VisitStats } from '@/lib/visits.functions'
 
 const PAGE_NAMES: Record<string, string> = {
@@ -25,11 +26,20 @@ export function StatsPanel() {
   const [days, setDays] = useState<7 | 30 | 90>(30)
   const [stats, setStats] = useState<VisitStats | null>(null)
   const [failed, setFailed] = useState(false)
+  const [activity, setActivity] = useState<ManagementActivityRow[] | null>(null)
 
   useEffect(() => {
     let active = true
     setStats(null)
     setFailed(false)
+    setActivity(null)
+    getManagementActivity({ data: { days } })
+      .then((result) => {
+        if (active) setActivity(result)
+      })
+      .catch(() => {
+        if (active) setActivity([])
+      })
     getVisitStats({ data: { days } })
       .then((result) => {
         if (active) setStats(result)
@@ -116,6 +126,42 @@ export function StatsPanel() {
             </ul>
           )}
         </>
+      )}
+
+      <h3 className="mt-6 text-sm font-semibold">Najaktywniejsze kierownictwo</h3>
+      {activity === null ? (
+        <p className="mt-2 text-sm text-muted-foreground">Wczytywanie…</p>
+      ) : activity.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">Brak aktywności w tym okresie.</p>
+      ) : (
+        <div className="mt-2 overflow-x-auto rounded-md border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2">#</th>
+                <th className="px-3 py-2">Konto</th>
+                <th className="px-3 py-2">Wnioski</th>
+                <th className="px-3 py-2">Przyjęte</th>
+                <th className="px-3 py-2">Odrzucone</th>
+                <th className="px-3 py-2">Logowania</th>
+                <th className="px-3 py-2">Odsłonięte PESEL</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {activity.map((row, index) => (
+                <tr key={row.identity}>
+                  <td className="px-3 py-2 font-mono">{index + 1}</td>
+                  <td className="px-3 py-2">{row.identity}</td>
+                  <td className="px-3 py-2 font-mono">{row.requests}</td>
+                  <td className="px-3 py-2 font-mono">{row.approved}</td>
+                  <td className="px-3 py-2 font-mono">{row.rejected}</td>
+                  <td className="px-3 py-2 font-mono">{row.logins}</td>
+                  <td className="px-3 py-2 font-mono">{row.peselViews}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Panel>
   )

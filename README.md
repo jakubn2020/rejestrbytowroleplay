@@ -86,3 +86,12 @@ Tabela „Osoby w rejestrze” ma wyszukiwarkę pracowników (imię, nazwisko, P
 - Kierownictwo składa wniosek o zmianę ważności PWZ (dożywotnio / 3 miesiące / własna liczba dni lub miesięcy) przyciskiem z ikoną kalendarza w tabeli; wymagany zrzut ekranu, wspólny limit 1 wniosku na 5 minut. Nowy termin liczy się od dnia akceptacji przez admina.
 - Statystyki odwiedzin (tabele `visit_stats`, `visit_uniques`) są anonimowe: liczniki dzienne i dzienny skrót z solą, bez adresów IP; nie liczą `/admin`, `/plakietka` ani botów.
 - Migracja: `netlify/database/migrations/20261120160000_expiry_requests_visits/migration.sql` (uruchom ręcznie w Neon SQL Editor).
+
+## Aktualizacja 2.7
+
+- **Tryb awaryjny** (przycisk w panelu admina): zamyka wyszukiwarkę i weryfikację QR z komunikatem, w nagłówku pokazuje się czerwony pasek.
+- Osoba z kosza może zostać dodana ponownie bez opróżniania kosza.
+- **Dziennik zmian** pod `/zmiany`, edytowany w `src/lib/changelog.ts`.
+- Własne motywy kolorystyczne (ikona palety w nagłówku).
+- Statystyki: ranking najaktywniejszego kierownictwa.
+- Alert dla adminów i e-mail do właściciela konta przy logowaniu z nowego urządzenia; masowe odsłanianie PESEL (15 w 10 minut) wywołuje alert od wersji wcześniejszej. Nie ma nowej migracji.

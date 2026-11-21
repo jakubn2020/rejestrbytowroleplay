@@ -72,6 +72,7 @@ export const AUDIT_ACTION_LABELS = {
   expiry_request_reject: 'Odrzucono wniosek o zmianę terminu PWZ',
   request_approve: 'Zaakceptowano wniosek o wpis',
   request_reject: 'Odrzucono wniosek o wpis',
+  maintenance: 'Tryb awaryjny rejestru',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS

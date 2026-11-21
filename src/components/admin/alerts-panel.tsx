@@ -14,6 +14,7 @@ const KIND_LABELS: Record<string, string> = {
   lookup_limit: 'Zgadywanie numerów PESEL/PWZ',
   pesel_mass_view: 'Masowe odsłanianie numerów PESEL',
   new_ip: 'Logowanie z nowego adresu IP',
+  new_device: 'Logowanie z nowego urządzenia',
 }
 
 /** Admin: security alerts (failed logins, guessing, PESEL reveals, new addresses). */

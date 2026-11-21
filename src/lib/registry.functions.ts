@@ -27,7 +27,7 @@ import {
 import { requireAdmin, requireStaff, requireSuperAdmin } from './auth-server'
 import { superAdminEmail } from './session-server'
 import { hashPassword } from './password'
-import { IN_TRASH, insertPractitioner } from './practitioners-server'
+import { insertPractitioner, purgeTrashedClash } from './practitioners-server'
 import {
   ENTRY_STATUSES,
   ENTRY_STATUS_KEYS,
@@ -44,6 +44,7 @@ import {
 } from './registry'
 import { peselSchema, practitionerInput } from './schemas'
 import { logEvent, logPeselView, lookupAllowed } from './security-server'
+import { readMaintenance } from './site-settings-server'
 
 /** Rows that are not in the trash. */
 const alive = isNull(practitioners.deletedAt)
@@ -76,6 +77,8 @@ export type SearchResult =
 export const searchRegistry = createServerFn({ method: 'GET' })
   .validator(searchInput)
   .handler(async ({ data }): Promise<SearchResult> => {
+    const maintenance = await readMaintenance()
+    if (maintenance.closed) return { status: 'invalid', message: maintenance.message }
     const q = data.q.replace(/\s+/g, ' ')
 
     if (/^\d+$/.test(q)) {
@@ -272,20 +275,17 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
       return { ok: false, error: 'Nie znaleziono wpisu (mógł zostać usunięty).' }
     }
     const [clash] = await db
-      .select({
-        pesel: practitioners.pesel,
-        deletedAt: practitioners.deletedAt,
-      })
+      .select({ pesel: practitioners.pesel })
       .from(practitioners)
       .where(
         and(
           ne(practitioners.id, data.id),
+          alive,
           or(eq(practitioners.pesel, data.pesel), eq(practitioners.pwz, data.pwz)),
         ),
       )
       .limit(1)
     if (clash) {
-      if (clash.deletedAt) return { ok: false, error: IN_TRASH }
       return {
         ok: false,
         error:
@@ -305,6 +305,7 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
     const specialization = isParamedic(existing.profession)
       ? null
       : data.specialization || null
+    await purgeTrashedClash(data.pesel, data.pwz, context.identity, data.id)
     await db
       .update(practitioners)
       .set({
@@ -416,11 +417,16 @@ export type VerifyResult =
       pwz: string
     }
   | { status: 'suspended' | 'inactive' | 'not_found' | 'limited'; pwz: string }
+  | { status: 'closed'; pwz: string; message: string }
 
 /** Public: is the entry behind a badge real and current? Only active entries are "valid". */
 export const verifyEntry = createServerFn({ method: 'GET' })
   .validator(z.object({ pwz: z.string().regex(/^\d{7}$/) }))
   .handler(async ({ data }): Promise<VerifyResult> => {
+    const maintenance = await readMaintenance()
+    if (maintenance.closed) {
+      return { status: 'closed', pwz: data.pwz, message: maintenance.message }
+    }
     if (!(await lookupAllowed())) return { status: 'limited', pwz: data.pwz }
     const [row] = await db
       .select()

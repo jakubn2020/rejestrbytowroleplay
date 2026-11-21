@@ -50,7 +50,7 @@ export const Route = createRootRoute({
       {
         // Sets the saved (or system) colour scheme before the first paint.
         children:
-          "try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}",
+          "try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark');var h=parseInt(localStorage.getItem('palette-hue'),10);if(h>=0&&h<=360)document.documentElement.style.setProperty('--hue',String(h))}catch(e){}",
       },
     ],
     links: [

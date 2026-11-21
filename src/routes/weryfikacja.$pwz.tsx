@@ -28,6 +28,8 @@ function reason(result: VerifyResult): string {
       return 'Wpis jest nieaktywny, więc nie jest aktualny.'
     case 'limited':
       return 'Zbyt wiele zapytań. Spróbuj ponownie za minutę.'
+    case 'closed':
+      return result.message
     default:
       return 'W rejestrze nie ma wpisu o takim numerze.'
   }
@@ -36,7 +38,7 @@ function reason(result: VerifyResult): string {
 function VerifyPage() {
   const result = Route.useLoaderData()
   const valid = result.status === 'valid'
-  const limited = result.status === 'limited'
+  const limited = result.status === 'limited' || result.status === 'closed'
 
   return (
     <div className="mx-auto max-w-xl px-5 py-12 sm:py-16">
