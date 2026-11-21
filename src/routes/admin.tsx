@@ -21,6 +21,7 @@ import {
   UserCog,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -178,7 +179,7 @@ function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1290px] px-5 py-12">
+    <div className="mx-auto max-w-[1365px] px-5 py-12">
       <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
         Panel administratora
       </h1>
@@ -616,35 +617,55 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
         </div>
       )}
       {isAdmin && showManagement && (
-        <ManagementPanel
-          key={logVersion}
-          onChanged={() => setLogVersion((version) => version + 1)}
-        />
+        <Closable onClose={() => setShowManagement(false)}>
+          <ManagementPanel
+            key={logVersion}
+            onChanged={() => setLogVersion((version) => version + 1)}
+          />
+        </Closable>
       )}
       {user.isSuperAdmin && showAdmins && (
-        <ManagementPanel
-          key={`admins-${logVersion}`}
-          kind="admin"
-          onChanged={() => setLogVersion((version) => version + 1)}
-        />
+        <Closable onClose={() => setShowAdmins(false)}>
+          <ManagementPanel
+            key={`admins-${logVersion}`}
+            kind="admin"
+            onChanged={() => setLogVersion((version) => version + 1)}
+          />
+        </Closable>
       )}
       {isAdmin && showAlerts && (
-        <AlertsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
+        <Closable onClose={() => setShowAlerts(false)}>
+          <AlertsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
+        </Closable>
       )}
       {isAdmin && showReports && (
-        <ReportsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
+        <Closable onClose={() => setShowReports(false)}>
+          <ReportsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
+        </Closable>
       )}
       {isAdmin && showRequests && (
-        <>
+        <Closable onClose={() => setShowRequests(false)}>
           <RequestsPanel key={logVersion} onChanged={() => void refreshAll()} />
-          <ExpiryRequestsPanel key={`exp-${logVersion}`} onChanged={() => void refreshAll()} />
-        </>
+          <div className="mt-6">
+            <ExpiryRequestsPanel key={`exp-${logVersion}`} onChanged={() => void refreshAll()} />
+          </div>
+        </Closable>
       )}
-      {isAdmin && showStats && <StatsPanel />}
+      {isAdmin && showStats && (
+        <Closable onClose={() => setShowStats(false)}>
+          <StatsPanel />
+        </Closable>
+      )}
       {isAdmin && showTrash && (
-        <TrashPanel key={logVersion} onChanged={() => void refreshAll()} />
+        <Closable onClose={() => setShowTrash(false)}>
+          <TrashPanel key={logVersion} onChanged={() => void refreshAll()} />
+        </Closable>
       )}
-      {isAdmin && showLog && <AuditLogPanel key={logVersion} />}
+      {isAdmin && showLog && (
+        <Closable onClose={() => setShowLog(false)}>
+          <AuditLogPanel key={logVersion} />
+        </Closable>
+      )}
       {isAdmin && (
         <>
           <ManagementDialog
@@ -1180,6 +1201,20 @@ function ManagementDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** Wraps an opened panel with a visible "Zamknij" button. */
+function Closable({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="mb-1 flex justify-end">
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+          <X className="size-4" /> Zamknij
+        </Button>
+      </div>
+      {children}
+    </div>
   )
 }
 
