@@ -873,7 +873,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                           </span>
                         </TableCell>
                         <TableCell className="font-mono">
-                          <PeselCell id={row.id} />
+                          <PeselCell id={row.id} value={isAdmin ? row.pesel : null} />
                         </TableCell>
                         <TableCell className="font-mono">{row.pwz}</TableCell>
                         <TableCell>{row.profession}</TableCell>
@@ -966,7 +966,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 }
 
 /** PESEL is hidden by default; showing it is audited and it hides itself again after a while. */
-function PeselCell({ id }: { id: number }) {
+function PeselCell({ id, value }: { id: number; value: string | null }) {
   const [pesel, setPesel] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
@@ -988,6 +988,7 @@ function PeselCell({ id }: { id: number }) {
     }
   }
 
+  if (value) return <span className="font-mono">{value}</span>
   if (pesel !== null) {
     return (
       <button
@@ -1289,6 +1290,11 @@ function EditDialog({
     setExpiry(KEEP_EXPIRY)
     setError(null)
     if (!row) return
+    if (row.pesel) {
+      setPesel(row.pesel)
+      setLoadingPesel(false)
+      return
+    }
     let active = true
     setLoadingPesel(true)
     revealPesel({ data: { id: row.id, purpose: 'edycja wpisu' } })

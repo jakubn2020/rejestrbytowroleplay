@@ -133,7 +133,7 @@ export const searchRegistry = createServerFn({ method: 'GET' })
 
 export const listPractitioners = createServerFn({ method: 'GET' })
   .middleware([requireStaff])
-  .handler(async () => {
+  .handler(async ({ context }) => {
     const rows = await db
       .select()
       .from(practitioners)
@@ -141,7 +141,9 @@ export const listPractitioners = createServerFn({ method: 'GET' })
       .orderBy(desc(practitioners.createdAt))
     return rows.map((row) => ({
       id: row.id,
-      // The PESEL is not part of the list: it is fetched (and audited) with `revealPesel`.
+      // Admins get the PESEL with the list (no extra click); kierownictwo must reveal it
+      // with `revealPesel`, which is audited.
+      pesel: context.isAdmin ? row.pesel : null,
       // Raw value (or null) so the admin edit form can be prefilled.
       rawSpecialization: row.specialization,
       /** The status as stored (the `status` below also reflects an expired validity). */

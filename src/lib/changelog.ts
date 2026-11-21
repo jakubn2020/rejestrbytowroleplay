@@ -12,6 +12,14 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.8',
+    date: '2026-11-21',
+    title: 'PESEL widoczny dla administratorów',
+    changes: [
+      'Administratorzy widzą numery PESEL w tabeli od razu, bez klikania „odsłoń”. Kierownictwo nadal odsłania PESEL pojedynczo, a każde odsłonięcie trafia do dziennika.',
+    ],
+  },
+  {
     version: '2.7',
     date: '2026-11-21',
     title: 'Tryb awaryjny, motywy kolorystyczne i dziennik zmian',
