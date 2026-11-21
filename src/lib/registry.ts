@@ -67,6 +67,9 @@ export const AUDIT_ACTION_LABELS = {
   pesel_view: 'Odsłonięto PESEL',
   sessions_revoked: 'Wylogowano ze wszystkich urządzeń',
   request_create: 'Złożono wniosek o wpis',
+  expiry_request_create: 'Złożono wniosek o zmianę terminu PWZ',
+  expiry_request_approve: 'Zaakceptowano wniosek o zmianę terminu PWZ',
+  expiry_request_reject: 'Odrzucono wniosek o zmianę terminu PWZ',
   request_approve: 'Zaakceptowano wniosek o wpis',
   request_reject: 'Odrzucono wniosek o wpis',
 } as const
@@ -165,4 +168,40 @@ export const BADGE_TITLES: Record<ProfessionKind, string> = {
 /** Path of the public page a badge's QR code points to. */
 export function verificationPath(pwz: string): string {
   return `/weryfikacja/${pwz}`
+}
+
+export const EXPIRY_MODES = ['lifetime', 'months3', 'custom'] as const
+export type RequestedExpiryMode = (typeof EXPIRY_MODES)[number]
+export const EXPIRY_UNITS = ['days', 'months'] as const
+export type ExpiryUnitKey = (typeof EXPIRY_UNITS)[number]
+export const MAX_EXPIRY_DAYS = 36_500
+export const MAX_EXPIRY_MONTHS = 1_200
+
+/** The date a validity choice leads to, counted from `from`; null = lifetime. */
+export function expiryFromChoice(
+  mode: RequestedExpiryMode,
+  amount: number | null,
+  unit: ExpiryUnitKey | null,
+  from: Date = new Date(),
+): Date | null {
+  if (mode === 'lifetime') return null
+  const date = new Date(from)
+  if (mode === 'months3') {
+    date.setMonth(date.getMonth() + 3)
+    return date
+  }
+  if (unit === 'days') date.setDate(date.getDate() + (amount ?? 0))
+  else date.setMonth(date.getMonth() + (amount ?? 0))
+  return date
+}
+
+/** "dożywotnio", "za 3 miesiące", "za 45 dni" … */
+export function describeExpiryChoice(
+  mode: string,
+  amount: number | null,
+  unit: string | null,
+): string {
+  if (mode === 'lifetime') return 'dożywotnio'
+  if (mode === 'months3') return 'wygasa za 3 miesiące'
+  return `wygasa za ${amount ?? '?'} ${unit === 'days' ? 'dni' : 'mies.'}`
 }

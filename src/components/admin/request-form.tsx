@@ -30,7 +30,7 @@ function formatWait(seconds: number) {
 }
 
 /** Shrinks a screenshot in the browser so it stays small enough to store (JPEG). */
-async function compressImage(file: File): Promise<string> {
+export async function compressImage(file: File): Promise<string> {
   const url = URL.createObjectURL(file)
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {

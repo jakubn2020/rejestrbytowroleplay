@@ -32,7 +32,7 @@ const STATUS_STYLES: Record<RequestStatus, string> = {
   rejected: 'bg-red-50 text-red-700 ring-red-200',
 }
 
-function RequestStatusBadge({ status }: { status: RequestStatus }) {
+export function RequestStatusBadge({ status }: { status: RequestStatus }) {
   return (
     <span
       className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ring-1 ${STATUS_STYLES[status]}`}

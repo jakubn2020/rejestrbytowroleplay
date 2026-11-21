@@ -13,7 +13,7 @@ import {
   toRequestStatus,
   type RequestStatus,
 } from './registry'
-import { practitionerInput } from './schemas'
+import { practitionerInput, proofSchema } from './schemas'
 import {
   claimCooldown,
   cooldownLeft,
@@ -25,15 +25,6 @@ import {
 
 const COOLDOWN_MESSAGE =
   'Kierownictwo może złożyć jeden wniosek na 5 minut. Spróbuj ponownie później.'
-
-/** Screenshot of the message (PNG / JPEG / WebP, never SVG), up to ~1.5 MB after compression. */
-const proofSchema = z
-  .string()
-  .max(2_000_000, 'Zrzut ekranu jest zbyt duży')
-  .regex(
-    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/,
-    'Dołącz zrzut ekranu jako obraz PNG, JPEG lub WebP',
-  )
 
 const submitInput = z.object({
   person: practitionerInput,

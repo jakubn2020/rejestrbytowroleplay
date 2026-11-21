@@ -41,7 +41,7 @@ Po zmianie `db/schema.ts` wygeneruj migrację: `DATABASE_URL=... npx drizzle-kit
 
 ## Role
 
-- `admin` – dodaje osoby bezpośrednio, usuwa je (do kosza na 30 dni), edytuje PESEL, specjalizację, status i ręcznie ustawia numer PWZ (PWZ musi mieć 7 cyfr i być unikalny). Tylko `admin` widzi przyciski: „Dodaj kierownictwo”, „Konta kierownictwa” (lista, reset hasła, usuwanie), „Wnioski” (akceptacja lub odrzucenie wniosków kierownictwa), „Kosz” i „Dziennik zdarzeń” (z filtrami i eksportem CSV).
+- `admin` – dodaje osoby bezpośrednio, usuwa je (do kosza na 30 dni), edytuje PESEL, specjalizację, status i ręcznie ustawia numer PWZ (PWZ musi mieć 7 cyfr i być unikalny). Tylko `admin` widzi przyciski: „Dodaj kierownictwo”, „Konta kierownictwa” (lista, reset hasła, usuwanie), „Wnioski” (akceptacja lub odrzucenie wniosków kierownictwa o wpis i o zmianę terminu PWZ), „Statystyki” (anonimowe odwiedziny całej strony), „Kosz” i „Dziennik zdarzeń” (z filtrami i eksportem CSV).
 - `kierownictwo` – widzi numery PESEL, wyszukuje pracowników i tworzy plakietki. Nie dodaje osób bezpośrednio: składa **wniosek** (imię, nazwisko, PESEL, zawód i **zrzut ekranu wiadomości**, w której ta osoba prosi o wpis), najwyżej jeden na 5 minut (limit liczony po stronie serwera). Wniosek akceptuje lub odrzuca admin, oglądając zrzut ekranu; po akceptacji wpis powstaje automatycznie (w rejestrze figuruje jako dodany przez osobę z kierownictwa). Kierownictwo nie edytuje i nie usuwa wpisów.
 
 Role nadaje się przy zakładaniu konta: kierownictwo dodaje każdy administrator, a administratorów dodaje tylko właściciel (konto z `SUPERADMIN_EMAIL`), w sekcji „Dodaj administratora” i „Konta administratorów”. Konta właściciela nie da się usunąć z panelu.
@@ -69,7 +69,7 @@ Przy każdej osobie w panelu jest ikona plakietki (`/plakietka/<id>`, dostępna 
 
 ## Powiadomienia
 
-Panel adminów sprawdza co minutę, czy są nowe wnioski, zgłoszenia albo alerty (liczniki na przyciskach i komunikat). Przy ustawionym `RESEND_API_KEY` admini dostają też e-mail o nowym wniosku, zgłoszeniu i alercie, a kierownictwo o decyzji w sprawie wniosku.
+Panel adminów sprawdza co minutę, czy są nowe wnioski, zgłoszenia albo alerty (czerwone kółko z liczbą na przyciskach oraz w nagłówku strony, i komunikat). Przy ustawionym `RESEND_API_KEY` admini dostają też e-mail o nowym wniosku, zgłoszeniu i alercie, a kierownictwo o decyzji w sprawie wniosku.
 
 ## Strony publiczne
 
@@ -79,3 +79,10 @@ Panel adminów sprawdza co minutę, czy są nowe wnioski, zgłoszenia albo alert
 - Przełącznik trybu jasnego i ciemnego jest w nagłówku (wybór zapamiętuje przeglądarka).
 
 Tabela „Osoby w rejestrze” ma wyszukiwarkę pracowników (imię, nazwisko, PESEL, PWZ, zawód, specjalizacja), filtry, sortowanie i działa dla obu ról; ignoruje wielkość liter i polskie znaki, a słowa można wpisać w dowolnej kolejności.
+
+
+## Wnioski o zmianę terminu i statystyki
+
+- Kierownictwo składa wniosek o zmianę ważności PWZ (dożywotnio / 3 miesiące / własna liczba dni lub miesięcy) przyciskiem z ikoną kalendarza w tabeli; wymagany zrzut ekranu, wspólny limit 1 wniosku na 5 minut. Nowy termin liczy się od dnia akceptacji przez admina.
+- Statystyki odwiedzin (tabele `visit_stats`, `visit_uniques`) są anonimowe: liczniki dzienne i dzienny skrót z solą, bez adresów IP; nie liczą `/admin`, `/plakietka` ani botów.
+- Migracja: `netlify/database/migrations/20261120160000_expiry_requests_visits/migration.sql` (uruchom ręcznie w Neon SQL Editor).

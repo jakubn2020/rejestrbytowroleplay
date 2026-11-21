@@ -35,3 +35,12 @@ export type PractitionerData = {
   specialization: string | null
   expiresAt?: Date | null
 }
+
+/** Screenshot of the message (PNG / JPEG / WebP, never SVG), up to ~1.5 MB after compression. */
+export const proofSchema = z
+  .string()
+  .max(2_000_000, 'Zrzut ekranu jest zbyt duży')
+  .regex(
+    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/,
+    'Dołącz zrzut ekranu jako obraz PNG, JPEG lub WebP',
+  )

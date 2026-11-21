@@ -146,3 +146,40 @@ export const authSessions = pgTable('auth_sessions', {
   expiresAt: timestamp('expires_at').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })
+
+/** A kierownictwo request to change the PWZ validity of an entry; an admin approves or rejects it. */
+export const expiryRequests = pgTable('expiry_requests', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  requestedBy: text('requested_by').notNull(),
+  practitionerId: integer('practitioner_id').notNull(),
+  /** Copied from the entry so the request stays readable if the entry is later changed or deleted. */
+  personName: text('person_name').notNull(),
+  pwz: text().notNull(),
+  /** 'lifetime' | 'months3' | 'custom' (custom uses amount + unit) */
+  mode: text().notNull(),
+  amount: integer(),
+  /** 'days' | 'months' */
+  unit: text(),
+  /** Screenshot of the message (image data URL). */
+  proof: text().notNull(),
+  /** 'pending' | 'approved' | 'rejected' */
+  status: text().notNull().default('pending'),
+  decidedBy: text('decided_by'),
+  decidedAt: timestamp('decided_at'),
+  note: text(),
+})
+
+/** Page views per day and page (anonymous counters). `id` is "<day>|<path>". */
+export const visitStats = pgTable('visit_stats', {
+  id: text().primaryKey(),
+  day: text().notNull(),
+  path: text().notNull(),
+  views: integer().notNull().default(0),
+})
+
+/** One row per anonymous visitor per day (salted hash, no IP address stored). `id` is "<day>|<hash>". */
+export const visitUniques = pgTable('visit_uniques', {
+  id: text().primaryKey(),
+  day: text().notNull(),
+})

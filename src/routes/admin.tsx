@@ -7,6 +7,8 @@ import {
   Eye,
   Flag,
   Inbox,
+  CalendarClock,
+  BarChart3,
   KeyRound,
   LogOut,
   Monitor,
@@ -86,6 +88,13 @@ import {
   resolveExpiry,
   type ExpiryChoice,
 } from '@/components/admin/expiry-field'
+import { CountBadge } from '@/components/count-badge'
+import { ExpiryRequestDialog } from '@/components/admin/expiry-request-dialog'
+import {
+  ExpiryRequestsPanel,
+  MyExpiryRequestsPanel,
+} from '@/components/admin/expiry-requests-panel'
+import { StatsPanel } from '@/components/admin/stats-panel'
 import { RequestForm } from '@/components/admin/request-form'
 import {
   MyRequestsPanel,
@@ -382,6 +391,8 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [showRequests, setShowRequests] = useState(false)
   const [showReports, setShowReports] = useState(false)
   const [showAlerts, setShowAlerts] = useState(false)
+  const [showStats, setShowStats] = useState(false)
+  const [expiryRow, setExpiryRow] = useState<Row | null>(null)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [counts, setCounts] = useState({ requests: 0, reports: 0, alerts: 0 })
   const [peselIds, setPeselIds] = useState<Set<number>>(new Set())
@@ -561,25 +572,34 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
             </>
           )}
           <Button
+            className="relative"
             variant={showRequests ? 'default' : 'outline'}
             onClick={() => setShowRequests((open) => !open)}
           >
             <Inbox className="size-4" /> Wnioski
-            {counts.requests > 0 ? ` (${counts.requests})` : ''}
+            <CountBadge count={counts.requests} />
           </Button>
           <Button
+            className="relative"
             variant={showReports ? 'default' : 'outline'}
             onClick={() => setShowReports((open) => !open)}
           >
             <Flag className="size-4" /> Zgłoszenia
-            {counts.reports > 0 ? ` (${counts.reports})` : ''}
+            <CountBadge count={counts.reports} />
           </Button>
           <Button
+            className="relative"
             variant={showAlerts ? 'default' : 'outline'}
             onClick={() => setShowAlerts((open) => !open)}
           >
             <ShieldAlert className="size-4" /> Alerty
-            {counts.alerts > 0 ? ` (${counts.alerts})` : ''}
+            <CountBadge count={counts.alerts} />
+          </Button>
+          <Button
+            variant={showStats ? 'default' : 'outline'}
+            onClick={() => setShowStats((open) => !open)}
+          >
+            <BarChart3 className="size-4" /> Statystyki
           </Button>
           <Button
             variant={showTrash ? 'default' : 'outline'}
@@ -615,8 +635,12 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
         <ReportsPanel key={logVersion} onChanged={() => setLogVersion((version) => version + 1)} />
       )}
       {isAdmin && showRequests && (
-        <RequestsPanel key={logVersion} onChanged={() => void refreshAll()} />
+        <>
+          <RequestsPanel key={logVersion} onChanged={() => void refreshAll()} />
+          <ExpiryRequestsPanel key={`exp-${logVersion}`} onChanged={() => void refreshAll()} />
+        </>
       )}
+      {isAdmin && showStats && <StatsPanel />}
       {isAdmin && showTrash && (
         <TrashPanel key={logVersion} onChanged={() => void refreshAll()} />
       )}
@@ -658,6 +682,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                 onSubmitted={() => setLogVersion((version) => version + 1)}
               />
               <MyRequestsPanel key={logVersion} />
+              <MyExpiryRequestsPanel key={`myexp-${logVersion}`} />
             </>
           )}
           <Panel>
@@ -812,6 +837,17 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                               <BadgeCheck className="size-4" />
                             </a>
                           </Button>
+                          {!isAdmin && isManagement && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Wniosek o zmianę terminu"
+                              aria-label={`Zmień termin: ${row.firstName} ${row.lastName}`}
+                              onClick={() => setExpiryRow(row)}
+                            >
+                              <CalendarClock className="size-4" />
+                            </Button>
+                          )}
                           {isAdmin && (
                             <>
                               <Button
@@ -845,6 +881,14 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
               </div>
             )}
           </Panel>
+          {!isAdmin && isManagement && (
+            <ExpiryRequestDialog
+              key={expiryRow?.id ?? 'none'}
+              person={expiryRow}
+              onClose={() => setExpiryRow(null)}
+              onSubmitted={() => setLogVersion((version) => version + 1)}
+            />
+          )}
           {isAdmin && (
             <EditDialog
               row={editing}

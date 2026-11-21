@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useRouterState } from '@tanstack/react-router'
 import { LogIn, Moon, Sun } from 'lucide-react'
+import { CountBadge } from '@/components/count-badge'
 import { Button } from '@/components/ui/button'
+import { getHeaderBadge } from '@/lib/alerts.functions'
+import { trackVisit } from '@/lib/visits.functions'
 
 /** Light/dark switch; the choice is remembered in this browser (the first paint is set in __root.tsx). */
 function ThemeToggle() {
@@ -38,6 +41,32 @@ function ThemeToggle() {
 }
 
 export function SiteHeader() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const [badge, setBadge] = useState<number | null>(null)
+
+  // Anonymous visit counter (not the admin panel or badges).
+  useEffect(() => {
+    if (pathname.startsWith('/admin') || pathname.startsWith('/plakietka')) return
+    trackVisit({ data: { path: pathname } }).catch(() => undefined)
+  }, [pathname])
+
+  // Red circle for signed-in admins when something waits for them.
+  useEffect(() => {
+    let active = true
+    const load = () =>
+      getHeaderBadge()
+        .then((result) => {
+          if (active) setBadge(result.count)
+        })
+        .catch(() => undefined)
+    void load()
+    const timer = setInterval(load, 60_000)
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [pathname])
+
   return (
     <header className="bg-[var(--registry-navy)] text-white print:hidden">
       <div className="h-1 bg-[var(--registry-red)]" />
@@ -54,11 +83,14 @@ export function SiteHeader() {
             asChild
             size="sm"
             variant="outline"
-            className="shrink-0 border-white/70 bg-transparent text-white hover:bg-white/10 hover:text-white"
+            className="relative shrink-0 border-white/70 bg-transparent text-white hover:bg-white/10 hover:text-white"
           >
             <Link to="/admin">
               <LogIn aria-hidden />
-              <span className="hidden sm:inline">Logowanie administratora</span>
+              <CountBadge count={badge ?? 0} />
+              <span className="hidden sm:inline">
+                {badge !== null ? 'Panel administratora' : 'Logowanie administratora'}
+              </span>
               <span className="sm:hidden">Admin</span>
             </Link>
           </Button>

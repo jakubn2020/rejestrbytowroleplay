@@ -53,6 +53,11 @@ const FAQ: { question: string; answer: string }[] = [
     answer:
       'Skorzystaj z formularza zgłaszania błędów. Zgłoszenia czytają administratorzy.',
   },
+  {
+    question: 'Czy strona zbiera dane o odwiedzających?',
+    answer:
+      'Tylko anonimowe liczniki odsłon (ile razy otwarto daną stronę i ilu różnych odwiedzających było danego dnia). Adresy IP nie są zapisywane, a statystyki widzą wyłącznie administratorzy.',
+  },
 ]
 
 function HowItWorks() {

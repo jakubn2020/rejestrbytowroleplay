@@ -163,3 +163,5 @@ Then replace the placeholder heading and text in `src/routes/index.tsx`.
 - Dark mode: class `dark` on `<html>` set by an inline script in `src/routes/__root.tsx` and toggled in `SiteHeader`; fixed light colours are overridden in `src/styles.css` (`@media screen`).
 
 - PWZ validity: `practitioners.expires_at` (null = lifetime). Always read the status through `effectiveStatus` (registry.ts), which turns an `active` entry past its date into `expired`; `listPractitioners` also returns `storedStatus` for the edit form. Only admins set it (`ExpiryField` in `src/components/admin/expiry-field.tsx`, `addPractitioner` / `updatePractitioner`).
+
+- Wnioski o zmianę terminu PWZ: `expiry-requests.functions.ts` (kierownictwo składa, admin decyduje). Statystyki odwiedzin: `visits.functions.ts` + `trackVisit` w `SiteHeader`. Czerwone kółko: `CountBadge`, `getHeaderBadge`/`getAdminCounts` w `alerts.functions.ts`.
