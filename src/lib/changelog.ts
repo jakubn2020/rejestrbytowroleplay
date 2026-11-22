@@ -12,6 +12,15 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.1',
+    date: '2026-11-22',
+    title: 'Szerokość panelu na suwaku',
+    changes: [
+      'Szerokość panelu można zmieniać suwakiem (900–3000 px) i jest zapamiętywana osobno w przeglądarce każdej osoby.',
+      'Myśl dnia: przy przysłowiach nie pokazuje się już linijka z podpisem.',
+    ],
+  },
+  {
     version: '3.0',
     date: '2026-11-22',
     title: 'Rozbudowane Centrum bezpieczeństwa',

@@ -92,7 +92,9 @@ function Home() {
 
       <figure className="mt-8 rounded-lg border border-dashed px-5 py-4 text-center">
         <blockquote className="font-[family-name:var(--font-heading)] text-lg italic">„{quote.text}”</blockquote>
-        <figcaption className="mt-1 text-xs text-muted-foreground">Myśl dnia · {quote.author}</figcaption>
+        {quote.author && (
+          <figcaption className="mt-1 text-xs text-muted-foreground">{quote.author}</figcaption>
+        )}
       </figure>
 
       <section aria-live="polite" className="mt-8">

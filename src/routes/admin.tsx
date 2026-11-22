@@ -155,8 +155,33 @@ async function resolveAuth(user: AuthUser, fresh: boolean): Promise<Auth> {
   return { phase: 'signed-in', user }
 }
 
+const WIDTH_KEY = 'panel-width'
+const DEFAULT_WIDTH = 1365
+const MIN_WIDTH = 900
+const MAX_WIDTH = 3000
+
 function AdminPage() {
   const [auth, setAuth] = useState<Auth>({ phase: 'loading' })
+  // Panel width is a personal setting: remembered in this browser.
+  const [width, setWidthState] = useState(DEFAULT_WIDTH)
+
+  useEffect(() => {
+    try {
+      const saved = Number(localStorage.getItem(WIDTH_KEY))
+      if (saved >= MIN_WIDTH && saved <= MAX_WIDTH) setWidthState(saved)
+    } catch {
+      // storage unavailable: keep the default
+    }
+  }, [])
+
+  function setWidth(next: number) {
+    setWidthState(next)
+    try {
+      localStorage.setItem(WIDTH_KEY, String(next))
+    } catch {
+      // the width then lasts until reload
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -184,7 +209,7 @@ function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1365px] px-5 py-12">
+    <div className="mx-auto px-5 py-12" style={{ maxWidth: width }}>
       <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
         Panel administratora
       </h1>
@@ -209,7 +234,12 @@ function AdminPage() {
           />
         )}
         {auth.phase === 'signed-in' && !auth.user.mustChangePassword && (
-          <SignedIn user={auth.user} onLogout={() => void signOut()} />
+          <SignedIn
+            user={auth.user}
+            onLogout={() => void signOut()}
+            width={width}
+            onWidth={setWidth}
+          />
         )}
       </div>
     </div>
@@ -477,7 +507,17 @@ function Watermark({ email }: { email: string }) {
   )
 }
 
-function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+function SignedIn({
+  user,
+  onLogout,
+  width,
+  onWidth,
+}: {
+  user: AuthUser
+  onLogout: () => void
+  width: number
+  onWidth: (width: number) => void
+}) {
   const isAdmin = user.roles?.includes(ROLE_ADMIN) ?? false
   const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
   const canAdd = isAdmin || isManagement
@@ -661,7 +701,24 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
         <p className="text-sm text-muted-foreground">
           Zalogowano jako <strong className="text-foreground">{user.email}</strong>
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Szerokość panelu
+            <input
+              type="range"
+              min={MIN_WIDTH}
+              max={MAX_WIDTH}
+              step={25}
+              value={width}
+              onChange={(e) => onWidth(Number(e.target.value))}
+              aria-label="Szerokość panelu"
+              className="w-32"
+            />
+            <span className="w-16 font-mono">{width} px</span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={() => onWidth(DEFAULT_WIDTH)}>
+            Resetuj
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setSessionsOpen(true)}>
             <Monitor className="size-4" /> Urządzenia
           </Button>
