@@ -14,9 +14,9 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '3.1',
     date: '2026-11-22',
-    title: 'Szerokość panelu na suwaku',
+    title: 'Szerokość tabeli na suwaku',
     changes: [
-      'Szerokość panelu można zmieniać suwakiem (900–3000 px) i jest zapamiętywana osobno w przeglądarce każdej osoby.',
+      'Szerokość tabeli z osobami w rejestrze można zmieniać suwakiem (700–3000 px). Ustawienie jest zapamiętywane osobno w przeglądarce każdej osoby, a reszta panelu się nie zmienia.',
       'Myśl dnia: przy przysłowiach nie pokazuje się już linijka z podpisem.',
     ],
   },
