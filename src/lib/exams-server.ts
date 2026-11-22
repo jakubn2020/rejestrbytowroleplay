@@ -57,11 +57,16 @@ export type GenerateInput = {
 
 /** Asks Gemini for three versions (A, B, C) of the exam. Throws an Error with a Polish message. */
 export async function generateExamWithAi(input: GenerateInput): Promise<Record<'A' | 'B' | 'C', QuestionDraft[]>> {
-  const key = process.env.GEMINI_API_KEY
+  const key = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
   if (!key) {
-    throw new Error('Brak klucza GEMINI_API_KEY. Ustaw go poleceniem: pnpm wrangler secret put GEMINI_API_KEY')
+    // Names only (never values) of similar variables, to spot a typo in the secret's name.
+    const similar = Object.keys(process.env).filter((name) => /gemini|google|api_key/i.test(name))
+    throw new Error(
+      `Strona nie widzi klucza GEMINI_API_KEY (wdrożona wersja go nie ma). Ustaw go: pnpm wrangler secret put GEMINI_API_KEY, a potem pnpm run deploy. ` +
+        `Podobne zmienne widoczne dla strony: ${similar.length ? similar.join(', ') : 'brak'}.`,
+    )
   }
-  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  const model = (process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim()
 
   const prompt = `Przygotuj egzamin w TRZECH wersjach: A, B i C. Wersje mają dotyczyć tego samego materiału i mieć podobny poziom trudności, ale zawierać RÓŻNE pytania (nie powtarzaj pytań między wersjami).
 
