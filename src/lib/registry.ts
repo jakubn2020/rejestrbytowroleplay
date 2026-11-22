@@ -83,6 +83,7 @@ export const AUDIT_ACTION_LABELS = {
   backup: 'Kopia zapasowa rejestru',
   restore: 'Przywrócenie rejestru z kopii',
   branding: 'Zmiana logo lub znaku wodnego',
+  changelog: 'Edycja dziennika zmian',
   temp_password: 'Wygenerowano hasło tymczasowe konta',
 } as const
 

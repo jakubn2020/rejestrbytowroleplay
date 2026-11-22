@@ -45,6 +45,7 @@ function Home() {
   }
 
   return (
+    <div className="home-bg">
     <div className="mx-auto max-w-3xl px-5 py-12 sm:py-16">
       <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)] sm:text-4xl">
         Wyszukiwarka rejestru
@@ -143,6 +144,7 @@ function Home() {
             </div>
           ))}
       </section>
+    </div>
     </div>
   )
 }

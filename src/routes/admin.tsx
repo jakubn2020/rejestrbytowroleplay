@@ -535,6 +535,24 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const [watermarkOn, setWatermarkOn] = useState(true)
+  // "Do zrobienia teraz" can be hidden; the choice is remembered in this browser.
+  const [todoHidden, setTodoHidden] = useState(false)
+  useEffect(() => {
+    try {
+      setTodoHidden(localStorage.getItem('todo-hidden') === '1')
+    } catch {
+      // keep it visible
+    }
+  }, [])
+  function setTodoHiddenSaved(hidden: boolean) {
+    setTodoHidden(hidden)
+    try {
+      if (hidden) localStorage.setItem('todo-hidden', '1')
+      else localStorage.removeItem('todo-hidden')
+    } catch {
+      // lasts until reload
+    }
+  }
   useEffect(() => {
     getBranding()
       .then((branding) => setWatermarkOn(branding.watermark))
@@ -724,8 +742,16 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
       {isManagement && !isAdmin && (
         <OnboardingDialog email={user.email} open={tutorialOpen} onOpenChange={setTutorialOpen} />
       )}
-      {isAdmin && (
+      {isAdmin && todoHidden && (
+        <div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setTodoHiddenSaved(false)}>
+            Pokaż „Do zrobienia teraz”
+          </Button>
+        </div>
+      )}
+      {isAdmin && !todoHidden && (
         <TodoPanel
+          onHide={() => setTodoHiddenSaved(true)}
           key={`todo-${logVersion}`}
           onOpen={(target) => {
             if (target === 'requests') setShowRequests(true)

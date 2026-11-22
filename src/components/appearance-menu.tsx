@@ -11,6 +11,7 @@ type Appearance = {
   oled?: 'on'
   motion?: 'off'
   sticky?: 'off'
+  homebg?: 'dots' | 'grid' | 'soft'
 }
 
 function read(): Appearance {
@@ -24,7 +25,7 @@ function read(): Appearance {
 /** Mirrors the saved choices onto <html> data attributes (the first paint is set in __root.tsx). */
 function apply(next: Appearance) {
   const root = document.documentElement
-  for (const key of ['font', 'radius', 'oled', 'motion', 'sticky'] as const) {
+  for (const key of ['font', 'radius', 'oled', 'motion', 'sticky', 'homebg'] as const) {
     const value = next[key]
     if (value) root.dataset[key] = value
     else delete root.dataset[key]
@@ -86,6 +87,14 @@ export function AppearanceMenu() {
             <option value="sharp">Ostre</option>
             <option value="">Średnie (domyślne)</option>
             <option value="round">Mocno zaokrąglone</option>
+          </select>
+
+          <label className="mt-3 block text-xs text-muted-foreground" htmlFor="ap-homebg">Tło strony głównej</label>
+          <select id="ap-homebg" className={selectClass} value={state.homebg ?? ''} onChange={(e) => change({ homebg: (e.target.value || undefined) as Appearance['homebg'] })}>
+            <option value="">Bez tła</option>
+            <option value="dots">Kropki</option>
+            <option value="grid">Siatka</option>
+            <option value="soft">Łagodny gradient</option>
           </select>
 
           <label className="mt-3 flex items-center gap-2 text-xs">

@@ -9,7 +9,7 @@ import { getTodo, type TodoInfo } from '@/lib/todo.functions'
 type Target = 'requests' | 'reports' | 'alerts' | 'security'
 
 /** Admin: the start dashboard with everything that needs doing now. */
-export function TodoPanel({ onOpen }: { onOpen: (target: Target) => void }) {
+export function TodoPanel({ onOpen, onHide }: { onOpen: (target: Target) => void; onHide: () => void }) {
   const [info, setInfo] = useState<TodoInfo | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -82,9 +82,14 @@ export function TodoPanel({ onOpen }: { onOpen: (target: Target) => void }) {
 
   return (
     <Panel>
-      <h2 className="flex items-center gap-2 text-lg font-semibold">
-        <ListChecks className="size-5" /> Do zrobienia teraz
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <ListChecks className="size-5" /> Do zrobienia teraz
+        </h2>
+        <Button type="button" variant="ghost" size="sm" onClick={onHide}>
+          Ukryj
+        </Button>
+      </div>
       {items.length === 0 ? (
         <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
           <CheckCircle2 className="size-4 text-emerald-600" /> Wszystko załatwione. Nic nie czeka na Twoją decyzję.

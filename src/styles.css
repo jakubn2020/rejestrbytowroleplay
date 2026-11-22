@@ -299,3 +299,20 @@ html[data-motion='off'] *::after {
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+
+/* Home page background (chosen in the appearance menu). */
+html[data-homebg='dots'] .home-bg {
+  background-image: radial-gradient(color-mix(in oklab, var(--registry-navy) 22%, transparent) 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+html[data-homebg='grid'] .home-bg {
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--registry-navy) 10%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--registry-navy) 10%, transparent) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+html[data-homebg='soft'] .home-bg {
+  background-image:
+    radial-gradient(ellipse at 15% 0%, color-mix(in oklab, var(--registry-navy) 16%, transparent), transparent 55%),
+    radial-gradient(ellipse at 90% 90%, color-mix(in oklab, var(--registry-red) 10%, transparent), transparent 50%);
+}
