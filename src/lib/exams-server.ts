@@ -114,24 +114,39 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
       }),
     })
 
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  // 429/500/503 are usually temporary (the model is overloaded): retry a few times with a pause.
+  const callWithRetry = async (modelName: string) => {
+    let result = await call(modelName)
+    for (const delay of [3000, 8000, 15000]) {
+      if (![429, 500, 502, 503, 504].includes(result.status)) break
+      await sleep(delay)
+      result = await call(modelName)
+    }
+    return result
+  }
+
   let response: Response
   let usedModel = model
   try {
-    response = await call(model)
+    response = await callWithRetry(model)
     // The default model name may have been retired: pick the newest available Flash model instead.
     if (response.status === 404) {
       const fallback = await pickFlashModel(key)
       if (fallback && fallback !== model) {
         usedModel = fallback
-        response = await call(fallback)
+        response = await callWithRetry(fallback)
       }
     }
   } catch {
     throw new Error('Nie udało się połączyć z usługą AI. Spróbuj ponownie za chwilę.')
   }
   if (!response.ok) {
+    const temporary = [429, 500, 502, 503, 504].includes(response.status)
     throw new Error(
-      `Usługa AI zwróciła błąd (${response.status}) dla modelu „${usedModel}”. Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.`,
+      temporary
+        ? `Usługa AI jest chwilowo przeciążona (${response.status}) mimo kilku prób. Spróbuj ponownie za minutę lub dwie.`
+        : `Usługa AI zwróciła błąd (${response.status}) dla modelu „${usedModel}”. Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.`,
     )
   }
 
