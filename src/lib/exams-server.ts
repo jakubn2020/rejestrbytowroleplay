@@ -55,6 +55,24 @@ export type GenerateInput = {
   nOpen: number
 }
 
+/** Newest stable Flash model available to this key that can generate content (or null). */
+async function pickFlashModel(key: string): Promise<string | null> {
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {
+    headers: { 'x-goog-api-key': key },
+  })
+  if (!response.ok) return null
+  const body = (await response.json()) as { models?: { name: string; supportedGenerationMethods?: string[] }[] }
+  const candidates = (body.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => m.name.replace(/^models\//, ''))
+  const stable = candidates
+    .map((name) => ({ name, match: /^gemini-(\d+(?:\.\d+)?)-flash$/.exec(name) }))
+    .filter((c): c is { name: string; match: RegExpExecArray } => c.match !== null)
+    .sort((a, b) => Number(b.match[1]) - Number(a.match[1]))
+  if (stable.length) return stable[0].name
+  return candidates.find((name) => /flash/.test(name) && !/lite|image|tts|live|audio|embed|preview|exp/.test(name)) ?? null
+}
+
 /** Asks Gemini for three versions (A, B, C) of the exam. Throws an Error with a Polish message. */
 export async function generateExamWithAi(input: GenerateInput): Promise<Record<'A' | 'B' | 'C', QuestionDraft[]>> {
   const key = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
@@ -85,9 +103,8 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
   const parts: unknown[] = [{ text: prompt }]
   if (input.pdfBase64) parts.push({ inline_data: { mime_type: 'application/pdf', data: input.pdfBase64 } })
 
-  let response: Response
-  try {
-    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+  const call = (modelName: string) =>
+    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
@@ -96,11 +113,26 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
         generationConfig: { responseMimeType: 'application/json', temperature: 0.8 },
       }),
     })
+
+  let response: Response
+  let usedModel = model
+  try {
+    response = await call(model)
+    // The default model name may have been retired: pick the newest available Flash model instead.
+    if (response.status === 404) {
+      const fallback = await pickFlashModel(key)
+      if (fallback && fallback !== model) {
+        usedModel = fallback
+        response = await call(fallback)
+      }
+    }
   } catch {
     throw new Error('Nie udało się połączyć z usługą AI. Spróbuj ponownie za chwilę.')
   }
   if (!response.ok) {
-    throw new Error(`Usługa AI zwróciła błąd (${response.status}). Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.`)
+    throw new Error(
+      `Usługa AI zwróciła błąd (${response.status}) dla modelu „${usedModel}”. Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.`,
+    )
   }
 
   let text: string | undefined
