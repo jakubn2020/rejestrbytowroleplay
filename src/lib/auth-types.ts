@@ -5,4 +5,6 @@ export type AuthUser = {
   roles: string[]
   /** True only for the owner account (SUPERADMIN_EMAIL), which may also manage admin accounts. */
   isSuperAdmin: boolean
+  /** The owner forced a password change: the panel only offers that until it is done. */
+  mustChangePassword: boolean
 }

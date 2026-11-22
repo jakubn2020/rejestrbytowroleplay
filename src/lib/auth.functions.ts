@@ -1,6 +1,6 @@
 /** Password login for staff accounts (replaces Netlify Identity). */
 import { createServerFn } from '@tanstack/react-start'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../../db'
@@ -13,7 +13,10 @@ import {
   isSuperAdmin,
   startAuthSession,
 } from './session-server'
+import { ipBanned, panelIpAllowed } from './ip-policy-server'
 import { loginBlocked, registerLoginFailure } from './login-guard-server'
+import { isWeakPassword } from './password-strength'
+import { SEC_KEYS, readNumberSetting } from './site-settings-server'
 import { hashPassword, verifyPassword } from './password'
 import { logEvent } from './security-server'
 import { ROLE_ADMIN, ROLE_MANAGEMENT } from './registry'
@@ -23,7 +26,7 @@ let dummyHash: Promise<string> | null = null
 
 export type LoginResult =
   | { ok: true; user: AuthUser }
-  | { ok: false; reason: 'blocked' | 'invalid' }
+  | { ok: false; reason: 'blocked' | 'invalid' | 'locked' }
 
 export const loginUser = createServerFn({ method: 'POST' })
   .validator(
@@ -33,7 +36,7 @@ export const loginUser = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data }): Promise<LoginResult> => {
-    if (await loginBlocked()) return { ok: false, reason: 'blocked' }
+    if ((await loginBlocked()) || (await ipBanned())) return { ok: false, reason: 'blocked' }
 
     const [row] = await db.select().from(users).where(eq(users.email, data.email)).limit(1)
     let valid = false
@@ -49,6 +52,37 @@ export const loginUser = createServerFn({ method: 'POST' })
       return { ok: false, reason: 'invalid' }
     }
 
+    const owner = isSuperAdmin(row.email, row.roles)
+    if (!owner) {
+      // Checked only after the password was right, so nobody can probe which accounts are blocked.
+      const unusedDays = await readNumberSetting(SEC_KEYS.unusedDays, 60)
+      const idleSince = row.lastLoginAt?.getTime()
+      if (
+        !row.locked &&
+        unusedDays > 0 &&
+        idleSince !== undefined &&
+        Date.now() - idleSince > unusedDays * 86_400_000
+      ) {
+        await db
+          .update(users)
+          .set({ locked: true, lockedReason: `Nieużywane konto (ponad ${unusedDays} dni bez logowania)` })
+          .where(eq(users.id, row.id))
+        return { ok: false, reason: 'locked' }
+      }
+      if (row.locked) return { ok: false, reason: 'locked' }
+      if (row.frozenUntil && row.frozenUntil.getTime() > Date.now()) return { ok: false, reason: 'locked' }
+      if ((await readNumberSetting(SEC_KEYS.lockdown, 0)) === 1) return { ok: false, reason: 'locked' }
+      if (row.roles.includes(ROLE_ADMIN) && !(await panelIpAllowed())) {
+        return { ok: false, reason: 'blocked' }
+      }
+    }
+    await db
+      .update(users)
+      .set({
+        lastLoginAt: sql`now()`,
+        weakPassword: isWeakPassword(data.password, row.email),
+      })
+      .where(eq(users.id, row.id))
     await startAuthSession(row.id)
     return {
       ok: true,
@@ -56,7 +90,8 @@ export const loginUser = createServerFn({ method: 'POST' })
         id: row.id,
         email: row.email,
         roles: row.roles,
-        isSuperAdmin: isSuperAdmin(row.email, row.roles),
+        isSuperAdmin: owner,
+        mustChangePassword: row.mustChangePassword,
       },
     }
   })
@@ -95,7 +130,11 @@ export const changeOwnPassword = createServerFn({ method: 'POST' })
     }
     await db
       .update(users)
-      .set({ passwordHash: await hashPassword(data.newPassword) })
+      .set({
+        passwordHash: await hashPassword(data.newPassword),
+        mustChangePassword: false,
+        weakPassword: isWeakPassword(data.newPassword, user.email),
+      })
       .where(eq(users.id, user.id))
     await endOtherAuthSessions(user.id)
     await logEvent({

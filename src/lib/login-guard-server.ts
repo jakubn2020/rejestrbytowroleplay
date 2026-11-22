@@ -2,6 +2,7 @@
  * Brute-force protection around the panel login: a per-address lockout and alerts.
  * Server-only; used by the login function in auth.functions.ts.
  */
+import { autoBan } from './ip-policy-server'
 import {
   clientIp,
   countEvents,
@@ -36,6 +37,9 @@ export async function registerLoginFailure(rawEmail: string): Promise<void> {
       ip,
       minutes: WINDOW_MINUTES,
     })
+    if (fromIp >= MAX_FAILURES_PER_IP) {
+      await autoBan(ip, 60, `${fromIp} nieudanych logowań w ciągu ${WINDOW_MINUTES} minut`)
+    }
     if (fromIp >= ALERT_AFTER) {
       await raiseAlert({
         kind: 'login_failures_ip',

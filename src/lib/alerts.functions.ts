@@ -32,6 +32,8 @@ export const listAlerts = createServerFn({ method: 'GET' })
       ip: row.ip,
       details: row.details ?? '',
       acknowledged: row.acknowledged,
+      severity: row.severity,
+      country: row.country,
     }))
   })
 

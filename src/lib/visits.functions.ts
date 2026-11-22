@@ -4,7 +4,7 @@
  */
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestHeader } from '@tanstack/react-start/server'
-import { and, asc, desc, gte, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, gte, lt, ne, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../../db'
@@ -33,8 +33,15 @@ export const trackVisit = createServerFn({ method: 'POST' })
   .validator(z.object({ path: z.string().max(200) }))
   .handler(async ({ data }) => {
     const userAgent = getRequestHeader('user-agent') ?? ''
-    if (!userAgent || BOT.test(userAgent)) return { ok: true }
     const day = warsawDay(new Date())
+    if (!userAgent || BOT.test(userAgent)) {
+      // Not counted as a visit, but tallied so the owner can see how much automated traffic there is.
+      await db
+        .insert(visitStats)
+        .values({ id: `${day}|__bot`, day, path: '__bot', views: 1 })
+        .onConflictDoUpdate({ target: visitStats.id, set: { views: sql`${visitStats.views} + 1` } })
+      return { ok: true }
+    }
     const path = normalizePath(data.path)
     await db
       .insert(visitStats)
@@ -75,7 +82,7 @@ export const getVisitStats = createServerFn({ method: 'GET' })
     const views = await db
       .select({ day: visitStats.day, n: sql<string>`sum(${visitStats.views})` })
       .from(visitStats)
-      .where(gte(visitStats.day, first))
+      .where(and(gte(visitStats.day, first), ne(visitStats.path, '__bot')))
       .groupBy(visitStats.day)
       .orderBy(asc(visitStats.day))
     const visitors = await db
@@ -86,7 +93,7 @@ export const getVisitStats = createServerFn({ method: 'GET' })
     const pages = await db
       .select({ path: visitStats.path, n: sql<string>`sum(${visitStats.views})` })
       .from(visitStats)
-      .where(gte(visitStats.day, first))
+      .where(and(gte(visitStats.day, first), ne(visitStats.path, '__bot')))
       .groupBy(visitStats.path)
       .orderBy(desc(sql`sum(${visitStats.views})`))
       .limit(15)

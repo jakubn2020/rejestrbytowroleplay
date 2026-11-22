@@ -109,7 +109,7 @@ import { TrashPanel } from '@/components/admin/trash-panel'
 import { getAdminCounts } from '@/lib/alerts.functions'
 import { getMyBadge } from '@/lib/activity.functions'
 import { getSiteStatus, setMaintenance } from '@/lib/site.functions'
-import { currentUser, loginUser, logoutUser } from '@/lib/auth.functions'
+import { changeOwnPassword, currentUser, loginUser, logoutUser } from '@/lib/auth.functions'
 import type { AuthUser } from '@/lib/auth-types'
 import {
   endMfaSession,
@@ -202,10 +202,91 @@ function AdminPage() {
             onLogout={() => void signOut()}
           />
         )}
-        {auth.phase === 'signed-in' && (
+        {auth.phase === 'signed-in' && auth.user.mustChangePassword && (
+          <ForcedPasswordChange
+            onDone={() => setAuth({ phase: 'signed-in', user: { ...auth.user, mustChangePassword: false } })}
+            onLogout={() => void signOut()}
+          />
+        )}
+        {auth.phase === 'signed-in' && !auth.user.mustChangePassword && (
           <SignedIn user={auth.user} onLogout={() => void signOut()} />
         )}
       </div>
+    </div>
+  )
+}
+
+/** The owner forced a password change: nothing else is available until it is done. */
+function ForcedPasswordChange({ onDone, onLogout }: { onDone: () => void; onLogout: () => void }) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const fields = new FormData(event.currentTarget)
+    const password = String(fields.get('password'))
+    if (password.length < 8) {
+      setError('Hasło musi mieć co najmniej 8 znaków.')
+      return
+    }
+    if (password !== String(fields.get('confirm'))) {
+      setError('Hasła nie są takie same.')
+      return
+    }
+    setPending(true)
+    setError(null)
+    try {
+      const result = await changeOwnPassword({
+        data: { currentPassword: String(fields.get('current')), newPassword: password },
+      })
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+      toast.success('Hasło zostało zmienione.')
+      onDone()
+    } catch {
+      setError('Nie udało się zmienić hasła.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div className="max-w-md">
+      <Panel>
+        <h2 className="text-lg font-semibold">Wymagana zmiana hasła</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Właściciel wymaga ustawienia nowego hasła przed dalszą pracą.
+        </p>
+        <form onSubmit={submit} className="mt-4 space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="forced-current">Obecne hasło</Label>
+            <Input id="forced-current" name="current" type="password" autoComplete="current-password" required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="forced-new">Nowe hasło</Label>
+            <Input id="forced-new" name="password" type="password" autoComplete="new-password" required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="forced-confirm">Powtórz nowe hasło</Label>
+            <Input id="forced-confirm" name="confirm" type="password" autoComplete="new-password" required />
+          </div>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Zapisywanie…' : 'Zmień hasło'}
+            </Button>
+            <Button type="button" variant="outline" onClick={onLogout}>
+              Wyloguj
+            </Button>
+          </div>
+        </form>
+      </Panel>
     </div>
   )
 }
@@ -227,8 +308,10 @@ function LoginForm({ onDone }: { onDone: (user: AuthUser) => void }) {
       if (!result.ok) {
         setError(
           result.reason === 'blocked'
-            ? 'Zbyt wiele nieudanych prób logowania. Spróbuj ponownie za 15 minut.'
-            : 'Nieprawidłowy e-mail lub hasło.',
+            ? 'Logowanie z tego adresu jest teraz niedostępne (zbyt wiele prób albo adres zablokowany).'
+            : result.reason === 'locked'
+              ? 'To konto jest zablokowane lub chwilowo niedostępne. Skontaktuj się z właścicielem.'
+              : 'Nieprawidłowy e-mail lub hasło.',
         )
         return
       }
@@ -378,6 +461,19 @@ function SortHead({
           ))}
       </button>
     </TableHead>
+  )
+}
+
+/** Faint, repeated e-mail of the signed-in person over the whole panel, so screenshots can be traced back. */
+function Watermark({ email }: { email: string }) {
+  const safe = email.replace(/[<>&"']/g, '')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><text x="20" y="100" transform="rotate(-24 160 90)" font-family="sans-serif" font-size="15" fill="#64748b" fill-opacity="0.16">${safe}</text></svg>`
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-0 z-40 select-none"
+      style={{ backgroundImage: `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`, backgroundRepeat: 'repeat' }}
+    />
   )
 }
 
@@ -560,6 +656,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
   return (
     <div className="space-y-8">
+      <Watermark email={user.email} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Zalogowano jako <strong className="text-foreground">{user.email}</strong>
@@ -996,6 +1093,7 @@ function PeselCell({ id, value }: { id: number; value: string | null }) {
     setPending(true)
     try {
       const result = await revealPesel({ data: { id, purpose: 'podgląd w tabeli' } })
+      if (result.error) toast.error(result.error)
       setPesel(result.pesel)
     } catch {
       toast.error('Nie udało się odsłonić numeru PESEL.')
@@ -1332,7 +1430,9 @@ function EditDialog({
     setLoadingPesel(true)
     revealPesel({ data: { id: row.id, purpose: 'edycja wpisu' } })
       .then((r) => {
-        if (active) setPesel(r.pesel ?? '')
+        if (!active) return
+        if (r.error) setError(r.error)
+        setPesel(r.pesel ?? '')
       })
       .catch(() => {
         if (active) setError('Nie udało się wczytać numeru PESEL.')

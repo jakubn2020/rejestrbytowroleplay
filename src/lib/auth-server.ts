@@ -6,6 +6,7 @@ import { getSessionUser } from './session-server'
 import { mfaSatisfied } from './security-server'
 
 const MFA_REQUIRED = 'Wymagane potwierdzenie kodem z e-maila'
+const PASSWORD_CHANGE_REQUIRED = 'Wymagana zmiana hasła'
 
 /** Lets `admin` and `kierownictwo` through; exposes who they are and whether they are admin. */
 export const requireStaff = createMiddleware({ type: 'function' }).server(
@@ -16,6 +17,7 @@ export const requireStaff = createMiddleware({ type: 'function' }).server(
     if (!user || (!isAdmin && !roles.includes(ROLE_MANAGEMENT))) {
       throw new Error('Brak uprawnień')
     }
+    if (user.mustChangePassword) throw new Error(PASSWORD_CHANGE_REQUIRED)
     const identity = user.email.toLowerCase()
     if (!(await mfaSatisfied(identity))) throw new Error(MFA_REQUIRED)
     return next({ context: { user, isAdmin, identity } })
@@ -29,6 +31,7 @@ export const requireAdmin = createMiddleware({ type: 'function' }).server(
     if (!user?.roles.includes(ROLE_ADMIN)) {
       throw new Error('Brak uprawnień administratora')
     }
+    if (user.mustChangePassword) throw new Error(PASSWORD_CHANGE_REQUIRED)
     const identity = user.email.toLowerCase()
     if (!(await mfaSatisfied(identity))) throw new Error(MFA_REQUIRED)
     return next({ context: { user, identity } })
@@ -42,6 +45,7 @@ export const requireSuperAdmin = createMiddleware({ type: 'function' }).server(
     if (!user?.isSuperAdmin) {
       throw new Error('Brak uprawnień właściciela')
     }
+    if (user.mustChangePassword) throw new Error(PASSWORD_CHANGE_REQUIRED)
     const identity = user.email.toLowerCase()
     if (!(await mfaSatisfied(identity))) throw new Error(MFA_REQUIRED)
     return next({ context: { user, identity } })

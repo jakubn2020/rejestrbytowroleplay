@@ -15,6 +15,27 @@ const KIND_LABELS: Record<string, string> = {
   pesel_mass_view: 'Masowe odsłanianie numerów PESEL',
   new_ip: 'Logowanie z nowego adresu IP',
   new_device: 'Logowanie z nowego urządzenia',
+  new_country: 'Logowanie z nowego kraju',
+  two_countries: 'Logowania z dwóch krajów w krótkim czasie',
+  odd_hours: 'Logowanie o nietypowej porze',
+  tor_login: 'Logowanie przez sieć Tor',
+  pesel_sequence: 'Odsłanianie PESEL kolejnych wpisów (skanowanie)',
+  pesel_quota: 'Wyczerpany dzienny limit odsłonięć PESEL',
+  pesel_changed: 'Zmiana numeru PESEL we wpisie',
+  mass_delete: 'Masowe usuwanie wpisów',
+  mass_status: 'Masowa zmiana statusów',
+  qr_mass_check: 'Masowe sprawdzanie kodów QR',
+  pwz_guessing: 'Zgadywanie numerów PWZ/PESEL',
+  ip_autoban: 'Automatyczna blokada adresu IP',
+  lockdown: 'Tryb blokady (lockdown)',
+  test: 'Alarm próbny',
+}
+
+const SEVERITY: Record<string, { label: string; className: string }> = {
+  low: { label: 'niski', className: 'bg-slate-100 text-slate-700 ring-slate-200' },
+  medium: { label: 'średni', className: 'bg-amber-50 text-amber-800 ring-amber-200' },
+  high: { label: 'wysoki', className: 'bg-orange-100 text-orange-800 ring-orange-300' },
+  critical: { label: 'krytyczny', className: 'bg-red-600 text-white ring-red-700' },
 }
 
 /** Admin: security alerts (failed logins, guessing, PESEL reveals, new addresses). */
@@ -81,6 +102,11 @@ export function AlertsPanel({ onChanged }: { onChanged: () => void }) {
             >
               <p className="font-semibold">
                 {KIND_LABELS[row.kind] ?? row.kind}
+                <span
+                  className={`ml-2 rounded px-1.5 py-0.5 text-xs font-semibold ring-1 ${(SEVERITY[row.severity] ?? SEVERITY.medium).className}`}
+                >
+                  {(SEVERITY[row.severity] ?? SEVERITY.medium).label}
+                </span>
                 {!row.acknowledged && (
                   <span className="ml-2 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-700 ring-1 ring-red-200">
                     nowy
@@ -91,6 +117,7 @@ export function AlertsPanel({ onChanged }: { onChanged: () => void }) {
               <p className="text-xs text-muted-foreground">
                 {formatDateTime(row.createdAt)}
                 {row.ip ? ` · IP ${row.ip}` : ''}
+                {row.country ? ` · ${row.country}` : ''}
               </p>
             </li>
           ))}

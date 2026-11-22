@@ -30,7 +30,7 @@ export async function readMaintenance(): Promise<Maintenance> {
   }
 }
 
-async function writeSetting(key: string, value: string) {
+export async function writeSetting(key: string, value: string) {
   await db
     .insert(settings)
     .values({ key, value })
@@ -44,4 +44,60 @@ export async function writeMaintenance(closed: boolean, message: string) {
 
 export async function clearSetting(key: string) {
   await db.delete(settings).where(eq(settings.key, key))
+}
+
+export async function readSetting(key: string): Promise<string | null> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, key)).limit(1)
+  return row?.value ?? null
+}
+
+export async function readNumberSetting(key: string, fallback: number): Promise<number> {
+  try {
+    const value = await readSetting(key)
+    const n = value === null ? NaN : Number(value)
+    return Number.isFinite(n) ? n : fallback
+  } catch {
+    return fallback
+  }
+}
+
+/** Security policy knobs (all editable by the owner in the security centre). */
+export const SEC_KEYS = {
+  peselThreshold: 'sec_pesel_threshold',
+  peselDailyLimit: 'sec_pesel_daily_limit',
+  maxSessions: 'sec_max_sessions',
+  unusedDays: 'sec_unused_days',
+  whitelist: 'sec_whitelist',
+  lockdown: 'sec_lockdown',
+} as const
+
+export const SEC_DEFAULTS = {
+  peselThreshold: 15,
+  peselDailyLimit: 0,
+  maxSessions: 5,
+  unusedDays: 60,
+} as const
+
+export type SecuritySettings = {
+  /** PESEL reveals within 10 minutes that raise an alert. */
+  peselThreshold: number
+  /** PESEL reveals per account per day (0 = no limit). */
+  peselDailyLimit: number
+  /** Simultaneous sessions per account (0 = no limit). */
+  maxSessions: number
+  /** Days of inactivity after which an account is blocked (0 = never). */
+  unusedDays: number
+  whitelist: boolean
+  lockdown: boolean
+}
+
+export async function readSecuritySettings(): Promise<SecuritySettings> {
+  return {
+    peselThreshold: await readNumberSetting(SEC_KEYS.peselThreshold, SEC_DEFAULTS.peselThreshold),
+    peselDailyLimit: await readNumberSetting(SEC_KEYS.peselDailyLimit, SEC_DEFAULTS.peselDailyLimit),
+    maxSessions: await readNumberSetting(SEC_KEYS.maxSessions, SEC_DEFAULTS.maxSessions),
+    unusedDays: await readNumberSetting(SEC_KEYS.unusedDays, SEC_DEFAULTS.unusedDays),
+    whitelist: (await readNumberSetting(SEC_KEYS.whitelist, 0)) === 1,
+    lockdown: (await readNumberSetting(SEC_KEYS.lockdown, 0)) === 1,
+  }
 }

@@ -31,6 +31,9 @@ export const auditLog = pgTable('audit_log', {
   action: text().notNull(),
   target: text(),
   details: text(),
+  /** Address and browser of the person who did it (security trail). */
+  ip: text(),
+  userAgent: text('user_agent'),
 })
 
 export type AuditEntry = typeof auditLog.$inferSelect
@@ -87,6 +90,10 @@ export const securityEvents = pgTable('security_events', {
   details: text(),
   isAlert: boolean('is_alert').notNull().default(false),
   acknowledged: boolean().notNull().default(false),
+  /** Country code from Cloudflare (`T1` = Tor); null when unknown. */
+  country: text(),
+  /** 'low' | 'medium' | 'high' | 'critical' */
+  severity: text().notNull().default('medium'),
 })
 
 /** Public reports of mistakes in the registry. */
@@ -133,6 +140,12 @@ export const users = pgTable('users', {
   roles: text().array().notNull().default(sql`ARRAY[]::text[]`),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   createdBy: text('created_by'),
+  locked: boolean().notNull().default(false),
+  lockedReason: text('locked_reason'),
+  frozenUntil: timestamp('frozen_until'),
+  mustChangePassword: boolean('must_change_password').notNull().default(false),
+  weakPassword: boolean('weak_password').notNull().default(false),
+  lastLoginAt: timestamp('last_login_at').defaultNow(),
 })
 
 export type User = typeof users.$inferSelect
@@ -182,4 +195,67 @@ export const visitStats = pgTable('visit_stats', {
 export const visitUniques = pgTable('visit_uniques', {
   id: text().primaryKey(),
   day: text().notNull(),
+})
+
+/** Blocked or allowed addresses (single IP or CIDR range). `expiresAt` null = permanent. */
+export const ipRules = pgTable('ip_rules', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  /** 'block' | 'allow' (allow rules form the whitelist for the admin panel) */
+  kind: text().notNull(),
+  rule: text().notNull(),
+  reason: text(),
+  createdBy: text('created_by').notNull(),
+  expiresAt: timestamp('expires_at'),
+  auto: boolean().notNull().default(false),
+})
+
+/** One-time password reset links (only the hash of the token is stored). */
+export const passwordResets = pgTable('password_resets', {
+  tokenHash: text('token_hash').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+/** Requests to the public search/verification per minute and address. `id` is "<minute>|<ip>". */
+export const traffic = pgTable('traffic', {
+  id: text().primaryKey(),
+  minute: text().notNull(),
+  ip: text().notNull(),
+  hits: integer().notNull().default(0),
+})
+
+/** Security incidents with the evidence frozen when they were opened. */
+export const incidents = pgTable('incidents', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: text('created_by').notNull(),
+  title: text().notNull(),
+  /** 'open' | 'closed' */
+  status: text().notNull().default('open'),
+  closedAt: timestamp('closed_at'),
+  /** JSON copy of the latest audit log and security events at the moment of opening. */
+  snapshot: text(),
+  /** JSON list of ticked checklist item ids. */
+  checklist: text().notNull().default('[]'),
+})
+
+export const incidentNotes = pgTable('incident_notes', {
+  id: serial().primaryKey(),
+  incidentId: integer('incident_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  author: text().notNull(),
+  text: text().notNull(),
+})
+
+/** Registry backups (JSON of all entries that are not in the trash). */
+export const backups = pgTable('backups', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: text('created_by').notNull(),
+  entries: integer().notNull(),
+  data: text().notNull(),
 })

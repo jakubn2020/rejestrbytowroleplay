@@ -1,13 +1,15 @@
 /** Server-only: password-login sessions and the signed-in user. */
 import { randomBytes } from 'node:crypto'
 import { setResponseHeader } from '@tanstack/react-start/server'
-import { and, eq, gt, lt, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, lt, ne, sql } from 'drizzle-orm'
 
 import { db } from '../../db'
 import { authSessions, users } from '../../db/schema'
 import type { AuthUser } from './auth-types'
+import { ipBanned, panelIpAllowed } from './ip-policy-server'
 import { ROLE_ADMIN } from './registry'
-import { readCookie, sha256 } from './security-server'
+import { readCookie, sha256, clientIp } from './security-server'
+import { SEC_DEFAULTS, SEC_KEYS, readNumberSetting } from './site-settings-server'
 
 export const AUTH_COOKIE = 'rejestr_auth'
 const AUTH_HOURS = 12
@@ -31,10 +33,29 @@ export async function startAuthSession(userId: string): Promise<void> {
     expiresAt: sql`now() + ${sql.raw(`interval '${AUTH_HOURS} hours'`)}`,
   })
   await db.delete(authSessions).where(lt(authSessions.expiresAt, sql`now()`))
+  await trimAuthSessions(userId)
   setResponseHeader(
     'Set-Cookie',
     `${AUTH_COOKIE}=${token}; Path=/; Max-Age=${AUTH_HOURS * 3600}; HttpOnly; Secure; SameSite=Lax`,
   )
+}
+
+/** Keeps only the newest password sessions of an account (limit from the security settings). */
+async function trimAuthSessions(userId: string): Promise<void> {
+  try {
+    const limit = await readNumberSetting(SEC_KEYS.maxSessions, SEC_DEFAULTS.maxSessions)
+    if (limit <= 0) return
+    const rows = await db
+      .select({ tokenHash: authSessions.tokenHash })
+      .from(authSessions)
+      .where(and(eq(authSessions.userId, userId), gt(authSessions.expiresAt, sql`now()`)))
+      .orderBy(desc(authSessions.createdAt))
+    for (const row of rows.slice(limit)) {
+      await db.delete(authSessions).where(eq(authSessions.tokenHash, row.tokenHash))
+    }
+  } catch (error) {
+    console.error('Nie udało się ograniczyć liczby sesji', error)
+  }
 }
 
 export async function endAuthSession(): Promise<void> {
@@ -61,7 +82,14 @@ export async function getSessionUser(): Promise<AuthUser | null> {
   const token = readCookie(AUTH_COOKIE)
   if (!token) return null
   const [row] = await db
-    .select({ id: users.id, email: users.email, roles: users.roles })
+    .select({
+      id: users.id,
+      email: users.email,
+      roles: users.roles,
+      locked: users.locked,
+      frozenUntil: users.frozenUntil,
+      mustChangePassword: users.mustChangePassword,
+    })
     .from(authSessions)
     .innerJoin(users, eq(users.id, authSessions.userId))
     .where(
@@ -72,11 +100,22 @@ export async function getSessionUser(): Promise<AuthUser | null> {
     )
     .limit(1)
   if (!row) return null
+  const owner = isSuperAdmin(row.email, row.roles)
+  if (!owner) {
+    // Blocked, frozen, lockdown or a banned / not whitelisted address end the session at once.
+    if (row.locked) return null
+    if (row.frozenUntil && row.frozenUntil.getTime() > Date.now()) return null
+    if ((await readNumberSetting(SEC_KEYS.lockdown, 0)) === 1) return null
+    const ip = clientIp()
+    if (await ipBanned(ip)) return null
+    if (row.roles.includes(ROLE_ADMIN) && !(await panelIpAllowed(ip))) return null
+  }
   return {
     id: row.id,
     email: row.email,
     roles: row.roles,
-    isSuperAdmin: isSuperAdmin(row.email, row.roles),
+    isSuperAdmin: owner,
+    mustChangePassword: row.mustChangePassword,
   }
 }
 

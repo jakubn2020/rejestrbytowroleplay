@@ -27,6 +27,7 @@ import {
 import { requireAdmin, requireStaff, requireSuperAdmin } from './auth-server'
 import { superAdminEmail } from './session-server'
 import { hashPassword } from './password'
+import { isWeakPassword } from './password-strength'
 import { insertPractitioner, purgeTrashedClash } from './practitioners-server'
 import {
   ENTRY_STATUSES,
@@ -43,7 +44,19 @@ import {
   type PublicEntry,
 } from './registry'
 import { peselSchema, practitionerInput } from './schemas'
-import { logEvent, logPeselView, lookupAllowed } from './security-server'
+import { autoBan, ipBanned } from './ip-policy-server'
+import {
+  PESEL_QUOTA_MESSAGE,
+  clientIp,
+  countEvents,
+  logEvent,
+  logPeselView,
+  lookupAllowed,
+  peselQuotaExceeded,
+  raiseAlert,
+  recordEvent,
+  trackTraffic,
+} from './security-server'
 import { readMaintenance } from './site-settings-server'
 
 /** Rows that are not in the trash. */
@@ -74,11 +87,35 @@ export type SearchResult =
   | { status: 'ok'; mode: 'pesel' | 'pwz' | 'name'; entries: PublicEntry[] }
   | { status: 'invalid'; message: string }
 
+/**
+ * Numbers that are not in the registry, over and over from one address, look like guessing:
+ * raise an alert and ban the address for a while.
+ */
+async function noteMiss(kind: string, alertKind: string, limit: number, what: string) {
+  const ip = clientIp()
+  if (!ip) return
+  await recordEvent({ kind, ip })
+  const misses = await countEvents({ kind, ip, minutes: 10 })
+  if (misses >= limit) {
+    await raiseAlert({
+      kind: alertKind,
+      ip,
+      details: `Adres ${ip}: ${misses} nieudanych zapytań w ciągu 10 minut (${what}).`,
+      dedupeMinutes: 30,
+    })
+    await autoBan(ip, 60, what)
+  }
+}
+
 export const searchRegistry = createServerFn({ method: 'GET' })
   .validator(searchInput)
   .handler(async ({ data }): Promise<SearchResult> => {
     const maintenance = await readMaintenance()
     if (maintenance.closed) return { status: 'invalid', message: maintenance.message }
+    if (await ipBanned()) {
+      return { status: 'invalid', message: 'Dostęp z tego adresu został zablokowany.' }
+    }
+    await trackTraffic()
     const q = data.q.replace(/\s+/g, ' ')
 
     if (/^\d+$/.test(q)) {
@@ -96,6 +133,7 @@ export const searchRegistry = createServerFn({ method: 'GET' })
           and(alive, or(eq(practitioners.pesel, q), eq(practitioners.pwz, q))),
         )
         .orderBy(asc(practitioners.lastName))
+      if (rows.length === 0) await noteMiss('lookup_miss', 'pwz_guessing', 20, 'zgadywanie numerów PESEL/PWZ')
       return {
         status: 'ok',
         mode: q.length === 7 ? 'pwz' : 'pesel',
@@ -168,14 +206,18 @@ export const revealPesel = createServerFn({ method: 'POST' })
       .from(practitioners)
       .where(and(eq(practitioners.id, data.id), alive))
       .limit(1)
-    if (!row) return { pesel: null }
+    if (!row) return { pesel: null, error: null }
+    if (await peselQuotaExceeded(context.identity)) {
+      return { pesel: null, error: PESEL_QUOTA_MESSAGE }
+    }
     await logPeselView({
       actor: context.identity,
       actorRole: context.isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
       target: `${row.firstName} ${row.lastName} (PWZ ${row.pwz})`,
       purpose: data.purpose,
+      entryId: row.id,
     })
-    return { pesel: row.pesel }
+    return { pesel: row.pesel, error: null }
   })
 
 /** Staff only: ids of entries whose PESEL contains the digits (lets the panel search by PESEL without sending PESELs). */
@@ -348,6 +390,29 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
       target: `${existing.firstName} ${existing.lastName} (PWZ ${data.pwz})`,
       details: changes.length ? changes.join('; ') : 'bez zmian',
     })
+    if (existing.pesel !== data.pesel) {
+      await raiseAlert({
+        kind: 'pesel_changed',
+        identity: context.identity,
+        details: `${context.identity} zmienił(a) PESEL wpisu ${existing.firstName} ${existing.lastName}: ${existing.pesel} → ${data.pesel}.`,
+      })
+    }
+    if (toStatus(existing.status) !== data.status) {
+      await recordEvent({ kind: 'status_change', identity: context.identity })
+      const changed = await countEvents({
+        kind: 'status_change',
+        identity: context.identity,
+        minutes: 10,
+      })
+      if (changed >= 10) {
+        await raiseAlert({
+          kind: 'mass_status',
+          identity: context.identity,
+          details: `${context.identity} zmienił(a) status ${changed} wpisów w ciągu 10 minut.`,
+          dedupeMinutes: 30,
+        })
+      }
+    }
     return { ok: true }
   })
 
@@ -373,6 +438,20 @@ export const deletePractitioner = createServerFn({ method: 'POST' })
       target: `${existing.firstName} ${existing.lastName} (PWZ ${existing.pwz})`,
       details: `Zawód: ${existing.profession}. Przeniesiono do kosza (${TRASH_RETENTION_DAYS} dni na przywrócenie)`,
     })
+    await recordEvent({ kind: 'entry_delete', identity: context.identity })
+    const deleted = await countEvents({
+      kind: 'entry_delete',
+      identity: context.identity,
+      minutes: 10,
+    })
+    if (deleted >= 5) {
+      await raiseAlert({
+        kind: 'mass_delete',
+        identity: context.identity,
+        details: `${context.identity} usunął(-ęła) ${deleted} wpisów w ciągu 10 minut.`,
+        dedupeMinutes: 30,
+      })
+    }
     return { ok: true }
   })
 
@@ -391,11 +470,13 @@ export const getBadge = createServerFn({ method: 'GET' })
       .where(and(eq(practitioners.id, data.id), alive))
       .limit(1)
     if (!row) return null
+    if (await peselQuotaExceeded(context.identity)) throw new Error(PESEL_QUOTA_MESSAGE)
     await logPeselView({
       actor: context.identity,
       actorRole: context.isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
       target: `${row.firstName} ${row.lastName} (PWZ ${row.pwz})`,
       purpose: 'plakietka',
+      entryId: row.id,
     })
     return {
       id: row.id,
@@ -430,13 +511,18 @@ export const verifyEntry = createServerFn({ method: 'GET' })
     if (maintenance.closed) {
       return { status: 'closed', pwz: data.pwz, message: maintenance.message }
     }
+    if (await ipBanned()) return { status: 'limited', pwz: data.pwz }
+    await trackTraffic()
     if (!(await lookupAllowed())) return { status: 'limited', pwz: data.pwz }
     const [row] = await db
       .select()
       .from(practitioners)
       .where(and(eq(practitioners.pwz, data.pwz), alive))
       .limit(1)
-    if (!row) return { status: 'not_found', pwz: data.pwz }
+    if (!row) {
+      await noteMiss('qr_miss', 'qr_mass_check', 15, 'masowe sprawdzanie numerów z kodów QR')
+      return { status: 'not_found', pwz: data.pwz }
+    }
     const status = effectiveStatus(toStatus(row.status), row.expiresAt)
     if (status === 'suspended') return { status: 'suspended', pwz: data.pwz }
     if (status === 'expired') return { status: 'inactive', pwz: data.pwz }
@@ -554,6 +640,7 @@ export const listAuditLog = createServerFn({ method: 'GET' })
       action: row.action,
       target: row.target,
       details: row.details,
+      ip: row.ip,
     }))
   })
 
@@ -653,7 +740,10 @@ async function resetAccountPassword(
     if (!target) return { ok: false, error: `To konto nie jest kontem ${label}.` }
     await db
       .update(users)
-      .set({ passwordHash: await hashPassword(password) })
+      .set({
+        passwordHash: await hashPassword(password),
+        weakPassword: isWeakPassword(password, target.email),
+      })
       .where(eq(users.id, target.id))
     // Whoever knew the old password is signed out everywhere.
     await db.delete(authSessions).where(eq(authSessions.userId, target.id))
@@ -684,6 +774,7 @@ async function createAccount(
     await db.insert(users).values({
       email: input.email,
       passwordHash: await hashPassword(input.password),
+      weakPassword: isWeakPassword(input.password, input.email),
       roles: [role],
       createdBy: actor.identity,
     })

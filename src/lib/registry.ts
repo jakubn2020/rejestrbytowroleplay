@@ -75,6 +75,13 @@ export const AUDIT_ACTION_LABELS = {
   maintenance: 'Tryb awaryjny rejestru',
   revoke_account: 'Wylogowano konto ze wszystkich urządzeń',
   logout_everyone: 'Wylogowano wszystkich użytkowników',
+  account_lock: 'Zmiana stanu konta (blokada, zamrożenie, hasło)',
+  ip_rule: 'Zmiana listy adresów IP',
+  security_settings: 'Zmiana ustawień bezpieczeństwa',
+  lockdown: 'Tryb blokady (lockdown)',
+  incident: 'Incydent bezpieczeństwa',
+  backup: 'Kopia zapasowa rejestru',
+  restore: 'Przywrócenie rejestru z kopii',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS

@@ -12,6 +12,22 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.0',
+    date: '2026-11-22',
+    title: 'Rozbudowane Centrum bezpieczeństwa',
+    changes: [
+      'Konta: blokada, zamrożenie na godziny, wymuszona zmiana hasła, jednorazowy link resetu hasła, historia logowań, unieważnienie wszystkich haseł, automatyczna blokada kont nieużywanych dłużej niż ustawiona liczba dni.',
+      'Sesje: limit jednoczesnych sesji na konto, kończenie pojedynczej sesji, wylogowanie konta lub wszystkich.',
+      'Adresy IP: lista blokad (pojedyncze adresy i zakresy), blokady czasowe z odliczaniem, automatyczny ban po serii nieudanych prób, biała lista panelu admina, ranking ruchu i wykres ruchu na minutę z wykrywaniem skoków.',
+      'Wykrywanie: nowe urządzenie, nowy kraj, dwa kraje naraz, nietypowa pora, sieć Tor, skanowanie numerów PESEL, zgadywanie numerów PWZ, masowe sprawdzanie kodów QR, masowe usuwanie i zmiany statusów, zmiana PESEL.',
+      'PESEL: próg alertu i dzienny limit odsłonięć na suwakach, rejestr „kto oglądał czyj PESEL”.',
+      'Alerty mają poziomy ważności (niski, średni, wysoki, krytyczny) i można wysłać alarm próbny.',
+      'Incydenty: przyciski „zamknij i wyloguj” oraz lockdown, plan reakcji, notatnik z osią czasu, zamrożenie dowodów, lista kontrolna, raport końcowy do pobrania.',
+      'Kopie zapasowe rejestru z możliwością przywrócenia, ocena bezpieczeństwa 0–100.',
+      'Dziennik zdarzeń zapisuje adres IP, a panel ma znak wodny z adresem e-mail zalogowanej osoby.',
+    ],
+  },
+  {
     version: '2.9',
     date: '2026-11-21',
     title: 'Centrum bezpieczeństwa, odznaki i myśl dnia',

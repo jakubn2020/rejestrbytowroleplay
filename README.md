@@ -95,3 +95,11 @@ Tabela „Osoby w rejestrze” ma wyszukiwarkę pracowników (imię, nazwisko, P
 - Własne motywy kolorystyczne (ikona palety w nagłówku).
 - Statystyki: ranking najaktywniejszego kierownictwa.
 - Alert dla adminów i e-mail do właściciela konta przy logowaniu z nowego urządzenia; masowe odsłanianie PESEL (15 w 10 minut) wywołuje alert od wersji wcześniejszej. Nie ma nowej migracji.
+
+## Aktualizacja 3.0: Centrum bezpieczeństwa
+
+Migracja **przed wdrożeniem**: `netlify/database/migrations/20261121200000_security_center/migration.sql` (dodaje kolumny do `users`, `security_events`, `audit_log` oraz tabele `ip_rules`, `password_resets`, `traffic`, `incidents`, `incident_notes`, `backups`). Skrypt jest idempotentny (`IF NOT EXISTS`). Bez niej logowanie przestanie działać, bo kod czyta nowe kolumny.
+
+- Kraj logowania pochodzi z nagłówka Cloudflare `cf-ipcountry` (`T1` = Tor).
+- Zmiany polityki (progi, limity) zapisują się w tabeli `settings` (klucze `sec_*`).
+- Nie ma CAPTCHA (wymagałaby kluczy Cloudflare Turnstile).

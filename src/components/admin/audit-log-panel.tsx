@@ -31,7 +31,7 @@ function toCsv(rows: AuditRow[]) {
     const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
     return `"${safe.replace(/"/g, '""')}"`
   }
-  const header = ['Kiedy', 'Kto', 'Rola', 'Akcja', 'Dotyczy', 'Szczegóły']
+  const header = ['Kiedy', 'Kto', 'Rola', 'Akcja', 'Dotyczy', 'Szczegóły', 'Adres IP']
   const lines = rows.map((row) =>
     [
       formatDateTime(row.createdAt),
@@ -40,6 +40,7 @@ function toCsv(rows: AuditRow[]) {
       actionLabel(row.action),
       row.target,
       row.details,
+      row.ip,
     ]
       .map(cell)
       .join(';'),
@@ -216,7 +217,12 @@ export function AuditLogPanel() {
                     {actionLabel(row.action)}
                   </TableCell>
                   <TableCell>{row.target}</TableCell>
-                  <TableCell className="whitespace-normal">{row.details}</TableCell>
+                  <TableCell className="whitespace-normal">
+                    {row.details}
+                    {row.ip && (
+                      <span className="block text-xs text-muted-foreground">IP {row.ip}</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
