@@ -108,6 +108,6 @@ Migracja **przed wdrożeniem**: `netlify/database/migrations/20261121200000_secu
 
 Strona `/egzaminy` (przycisk „Egzaminy (beta)” w panelu właściciela). Wykładowca opisuje zagadnienia i/lub dołącza PDF, a AI (Gemini) generuje trzy wersje egzaminu (A, B, C): pytania zamknięte A–E, prawda/fałsz i otwarte. Wersje można ręcznie edytować. „Rozpocznij test” tworzy jednorazowy link `/egzamin/<token>` i listę loginów (wpisanych ręcznie albo wygenerowanych, np. BA1, CH7). Uczniowie wpisują login (jeden login = jedno urządzenie), czekają w poczekalni, a prowadzący startuje test dla wszystkich naraz. Każdy uczeń ma własną kolejność pytań i odpowiedzi oraz znak wodny z loginem. Strona egzaminu zgłasza opuszczenie okna, bezczynność (60 s), kopiowanie/wklejanie, menu kontekstowe, zmianę rozmiaru okna i brak sieci. Zamknięte są oceniane automatycznie, otwarte oznacza egzaminator jako zaliczone/niezaliczone.
 
-- Wymaga sekretu `pnpm wrangler secret put GEMINI_API_KEY` (opcjonalnie `GEMINI_MODEL`, domyślnie `gemini-2.5-flash`).
+- Wymaga sekretu `pnpm wrangler secret put GEMINI_API_KEY` (opcjonalnie `GEMINI_MODEL`, domyślnie `gemini-3.8-flash`).
 - Wymaga migracji `20261123100000_exams` (uruchom `migration.sql` w Neon przed wdrożeniem).
 - Dostęp obecnie: tylko właściciel (`requireSuperAdmin` zaimportowane jako `requireExamStaff` w `src/lib/exams.functions.ts`; tu docelowo role wykładowcy i egzaminatora).

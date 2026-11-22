@@ -83,7 +83,7 @@ export async function generateExamWithAi(input: GenerateInput): Promise<Record<'
       `Strona nie widzi klucza GEMINI_API_KEY. Zmienne widoczne dla strony: ${names.length ? names.join(', ') : 'brak żadnej'}.`,
     )
   }
-  const model = (process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim()
+  const model = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim()
 
   const prompt = `Przygotuj egzamin w TRZECH wersjach: A, B i C. Wersje mają dotyczyć tego samego materiału i mieć podobny poziom trudności, ale zawierać RÓŻNE pytania (nie powtarzaj pytań między wersjami).
 
