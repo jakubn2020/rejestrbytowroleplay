@@ -118,7 +118,7 @@ function HowItWorks() {
       <p className="mt-8 text-sm text-muted-foreground">
         Nie znalazłeś odpowiedzi albo zauważyłeś błąd?{' '}
         <Link to="/zglos-blad" className="underline">
-          Zgłoś błąd w rejestrze
+          Kontakt i zgłoszenia
         </Link>
         .
       </p>

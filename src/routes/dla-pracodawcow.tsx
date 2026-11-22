@@ -73,7 +73,7 @@ function ForEmployers() {
       <p className="mt-2 text-sm text-muted-foreground">
         Jeśli dane się nie zgadzają albo plakietka budzi wątpliwości, nie przyjmuj osoby do pracy
         w zawodzie i{' '}
-        <Link to="/zglos-blad" className="underline">zgłoś błąd w rejestrze</Link>.
+        <Link to="/zglos-blad" className="underline">zgłoś sprawę przez formularz kontaktowy</Link>.
       </p>
       <p className="mt-6 text-xs text-muted-foreground">
         To strona fikcyjna, stworzona na potrzeby roleplayu: wpisy nie mają mocy prawnej.

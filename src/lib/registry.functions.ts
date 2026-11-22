@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   gt,
+  inArray,
   isNotNull,
   isNull,
   like,
@@ -18,6 +19,7 @@ import { z } from 'zod'
 import { db } from '../../db'
 import {
   auditLog,
+  entryRevisions,
   mfaSessions,
   practitioners,
   authSessions,
@@ -61,6 +63,35 @@ import { readMaintenance } from './site-settings-server'
 
 /** Rows that are not in the trash. */
 const alive = isNull(practitioners.deletedAt)
+
+type Snapshot = {
+  pesel: string
+  pwz: string
+  specialization: string | null
+  status: string
+  expiresAt: string | null
+}
+
+/** Remembers how an entry looked before a change, so the change can be undone later. */
+async function saveRevision(before: Practitioner, actor: string, summary: string) {
+  const snapshot: Snapshot = {
+    pesel: before.pesel,
+    pwz: before.pwz,
+    specialization: before.specialization ?? null,
+    status: before.status,
+    expiresAt: before.expiresAt ? before.expiresAt.toISOString() : null,
+  }
+  await db.insert(entryRevisions).values({
+    entryId: before.id,
+    actor,
+    summary,
+    before: JSON.stringify(snapshot),
+  })
+  // Keep the history short: the 20 newest changes per entry.
+  await db.execute(
+    sql`delete from entry_revisions where entry_id = ${before.id} and id not in (select id from entry_revisions where entry_id = ${before.id} order by id desc limit 20)`,
+  )
+}
 
 function toStatus(value: string): EntryStatus {
   return value in ENTRY_STATUSES ? (value as EntryStatus) : 'active'
@@ -197,7 +228,7 @@ export const revealPesel = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       id: z.number().int().positive(),
-      purpose: z.enum(['podgląd w tabeli', 'edycja wpisu']),
+      purpose: z.enum(['podgląd w tabeli', 'edycja wpisu', 'kopiowanie']),
     }),
   )
   .handler(async ({ data, context }) => {
@@ -382,6 +413,9 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
     const after = expiresAt ? expiresAt.toISOString() : null
     if (before !== after) {
       changes.push(`ważność: ${validityLabel(before)} → ${validityLabel(after)}`)
+    }
+    if (changes.length) {
+      await saveRevision(existing, context.identity, changes.join('; '))
     }
     await logEvent({
       actor: context.identity,
@@ -871,3 +905,166 @@ export const setAdminPassword = createServerFn({ method: 'POST' })
     async ({ data, context }): Promise<SetPasswordResult> =>
       resetAccountPassword(data.id, data.password, ROLE_ADMIN, context),
   )
+
+// ---------------------------------------------------------------------------
+// History of one entry, undo, bulk actions (admin)
+// ---------------------------------------------------------------------------
+
+/** Admin only: the latest changes of one entry (newest first). */
+export const entryHistory = createServerFn({ method: 'GET' })
+  .middleware([requireAdmin])
+  .validator(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ data }) => {
+    const rows = await db
+      .select()
+      .from(entryRevisions)
+      .where(eq(entryRevisions.entryId, data.id))
+      .orderBy(desc(entryRevisions.id))
+      .limit(20)
+    return rows.map((row) => ({
+      id: row.id,
+      createdAt: row.createdAt.toISOString(),
+      actor: row.actor,
+      summary: row.summary,
+    }))
+  })
+
+/** Admin only: restores the entry to how it was before its latest change. */
+export const undoEntryChange = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(z.object({ id: z.number().int().positive() }))
+  .handler(async ({ data, context }): Promise<UpdateResult> => {
+    const [existing] = await db
+      .select()
+      .from(practitioners)
+      .where(and(eq(practitioners.id, data.id), alive))
+      .limit(1)
+    if (!existing) return { ok: false, error: 'Nie znaleziono wpisu.' }
+    const [revision] = await db
+      .select()
+      .from(entryRevisions)
+      .where(eq(entryRevisions.entryId, data.id))
+      .orderBy(desc(entryRevisions.id))
+      .limit(1)
+    if (!revision) return { ok: false, error: 'Ten wpis nie ma zmian do cofnięcia.' }
+    const before = JSON.parse(revision.before) as Snapshot
+    const [clash] = await db
+      .select({ id: practitioners.id })
+      .from(practitioners)
+      .where(
+        and(
+          ne(practitioners.id, data.id),
+          alive,
+          or(eq(practitioners.pesel, before.pesel), eq(practitioners.pwz, before.pwz)),
+        ),
+      )
+      .limit(1)
+    if (clash) {
+      return { ok: false, error: 'Nie można cofnąć: stary PESEL lub PWZ ma już inna osoba.' }
+    }
+    await db
+      .update(practitioners)
+      .set({
+        pesel: before.pesel,
+        pwz: before.pwz,
+        specialization: before.specialization,
+        status: before.status,
+        expiresAt: before.expiresAt ? new Date(before.expiresAt) : null,
+      })
+      .where(eq(practitioners.id, data.id))
+    await db.delete(entryRevisions).where(eq(entryRevisions.id, revision.id))
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'update',
+      target: `${existing.firstName} ${existing.lastName} (PWZ ${before.pwz})`,
+      details: `Cofnięto zmianę: ${revision.summary}`,
+    })
+    return { ok: true }
+  })
+
+const bulkInput = z.object({
+  ids: z.array(z.number().int().positive()).min(1).max(200),
+  action: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('status'), status: z.enum(ENTRY_STATUS_KEYS) }),
+    z.object({ type: z.literal('expiry'), expiresAt: z.string().datetime().nullable() }),
+    z.object({ type: z.literal('delete') }),
+  ]),
+})
+
+/** Admin only: one action on many entries (status, validity or the trash). */
+export const bulkUpdateEntries = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(bulkInput)
+  .handler(async ({ data, context }) => {
+    const rows = await db
+      .select()
+      .from(practitioners)
+      .where(and(inArray(practitioners.id, data.ids), alive))
+    const action = data.action
+    if (action.type === 'expiry' && action.expiresAt && new Date(action.expiresAt) <= new Date()) {
+      return { ok: false as const, error: 'Termin ważności musi być w przyszłości.', done: 0 }
+    }
+    let done = 0
+    for (const row of rows) {
+      if (action.type === 'delete') {
+        await db.update(practitioners).set({ deletedAt: sql`now()` }).where(eq(practitioners.id, row.id))
+        done++
+      } else if (action.type === 'status') {
+        if (toStatus(row.status) === action.status) continue
+        await saveRevision(row, context.identity, `status: ${ENTRY_STATUSES[toStatus(row.status)]} → ${ENTRY_STATUSES[action.status]}`)
+        await db.update(practitioners).set({ status: action.status }).where(eq(practitioners.id, row.id))
+        done++
+      } else {
+        const after = action.expiresAt ? new Date(action.expiresAt) : null
+        await saveRevision(row, context.identity, `ważność: ${validityLabel(row.expiresAt ? row.expiresAt.toISOString() : null)} → ${validityLabel(after ? after.toISOString() : null)}`)
+        await db.update(practitioners).set({ expiresAt: after }).where(eq(practitioners.id, row.id))
+        done++
+      }
+    }
+    const what =
+      action.type === 'delete'
+        ? 'przeniesiono do kosza'
+        : action.type === 'status'
+          ? `zmieniono status na „${ENTRY_STATUSES[action.status]}”`
+          : `ustawiono ważność: ${validityLabel(action.expiresAt)}`
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: action.type === 'delete' ? 'delete' : 'update',
+      target: `Zbiorczo: ${done} wpisów`,
+      details: `Akcja zbiorcza: ${what}`,
+    })
+    if (action.type === 'delete' && done >= 5) {
+      await raiseAlert({
+        kind: 'mass_delete',
+        identity: context.identity,
+        details: `${context.identity} usunął(-ęła) zbiorczo ${done} wpisów.`,
+        dedupeMinutes: 30,
+      })
+    }
+    if (action.type === 'status' && done >= 10) {
+      await raiseAlert({
+        kind: 'mass_status',
+        identity: context.identity,
+        details: `${context.identity} zmienił(a) zbiorczo status ${done} wpisów.`,
+        dedupeMinutes: 30,
+      })
+    }
+    return { ok: true as const, done, error: null }
+  })
+
+/** Admin only: writes an export of entries to the audit log (the file itself is built in the browser). */
+export const logEntriesExport = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin])
+  .validator(z.object({ count: z.number().int().min(1).max(5000) }))
+  .handler(async ({ data, context }) => {
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'export',
+      target: `Eksport do CSV: ${data.count} wpisów`,
+      details: 'Plik zawiera numery PESEL',
+    })
+    return { ok: true as const }
+  })

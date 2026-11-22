@@ -6,6 +6,7 @@ import { Panel } from '@/components/admin/panel'
 import { Button } from '@/components/ui/button'
 import { formatDateTime } from '@/lib/registry'
 import {
+  REPORT_CATEGORIES,
   deleteReport,
   listReports,
   setReportStatus,
@@ -83,7 +84,14 @@ export function ReportsPanel({ onChanged }: { onChanged: () => void }) {
               className={`flex flex-wrap items-start justify-between gap-3 p-3 text-sm ${row.status === 'done' ? 'opacity-60' : ''}`}
             >
               <div className="min-w-0 max-w-prose">
-                <p className="font-semibold">{row.subject}</p>
+                <p className="font-semibold">
+                  {row.category && row.category in REPORT_CATEGORIES && (
+                    <span className="mr-2 rounded bg-muted px-1.5 py-0.5 text-xs font-medium">
+                      {REPORT_CATEGORIES[row.category as keyof typeof REPORT_CATEGORIES]}
+                    </span>
+                  )}
+                  {row.subject}
+                </p>
                 <p className="whitespace-pre-wrap break-words">{row.message}</p>
                 <p className="text-xs text-muted-foreground">
                   {formatDateTime(row.createdAt)}

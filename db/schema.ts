@@ -106,6 +106,8 @@ export const reports = pgTable('reports', {
   contact: text(),
   /** 'open' | 'done' */
   status: text().notNull().default('open'),
+  /** 'data' | 'removal' | 'question' | 'tech' | 'other' (null = old reports) */
+  category: text(),
   handledBy: text('handled_by'),
   handledAt: timestamp('handled_at'),
 })
@@ -258,4 +260,16 @@ export const backups = pgTable('backups', {
   createdBy: text('created_by').notNull(),
   entries: integer().notNull(),
   data: text().notNull(),
+})
+
+/** Previous values of an entry before each edit, so the last changes can be undone. */
+export const entryRevisions = pgTable('entry_revisions', {
+  id: serial().primaryKey(),
+  entryId: integer('entry_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  actor: text().notNull(),
+  /** Human-readable list of what changed. */
+  summary: text().notNull(),
+  /** JSON: { pesel, pwz, specialization, status, expiresAt } as it was before the change. */
+  before: text().notNull(),
 })

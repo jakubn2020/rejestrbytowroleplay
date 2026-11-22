@@ -18,6 +18,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.5',
+    date: '2026-11-22',
+    title: 'Kontakt i zgłoszenia, regulamin, cookies',
+    changes: [
+      'Strona „Zgłoś błąd” zmieniła się w „Kontakt i zgłoszenia”: wybierasz rodzaj sprawy (błąd w danych, prośba o usunięcie wpisu, pytanie, problem techniczny, inna sprawa).',
+      'Regulamin i polityka prywatności pokazują numer wersji, datę i historię zmian.',
+      'Jednorazowy komunikat o plikach cookie (strona używa tylko niezbędnej pamięci przeglądarki).',
+      'Pod nagłówkiem może pojawiać się ogłoszenie od administracji strony.',
+      'Ulepszenia i nowe funkcje dla obsługi strony.',
+    ],
+  },
+  {
     version: '3.4',
     date: '2026-11-22',
     title: 'Tło strony głównej',

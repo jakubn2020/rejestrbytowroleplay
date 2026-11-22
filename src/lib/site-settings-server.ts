@@ -101,3 +101,21 @@ export async function readSecuritySettings(): Promise<SecuritySettings> {
     lockdown: (await readNumberSetting(SEC_KEYS.lockdown, 0)) === 1,
   }
 }
+
+/** Owner's feature switches and notices (stored in `settings`). */
+export const FLAG_KEYS = {
+  reports: 'flag_reports',
+  requests: 'flag_requests',
+  noticePublic: 'notice_public',
+  noticePublicLevel: 'notice_public_level',
+  noticeStaff: 'notice_staff',
+} as const
+
+/** A switch is on unless the owner stored '0'; a failed read never turns a feature off. */
+export async function readFlag(key: string): Promise<boolean> {
+  try {
+    return (await readSetting(key)) !== '0'
+  } catch {
+    return true
+  }
+}

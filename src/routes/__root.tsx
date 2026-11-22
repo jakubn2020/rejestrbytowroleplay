@@ -3,6 +3,7 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { NotFoundPage } from '@/components/error-pages'
+import { CookieNotice } from '@/components/cookie-notice'
 import { PageTransition, SiteFooter, SiteHeader } from '@/components/site-chrome'
 
 import '../styles.css'
@@ -86,6 +87,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             <SiteFooter />
           </div>
         </TooltipProvider>
+        <CookieNotice />
         <Toaster />
         <Scripts />
       </body>

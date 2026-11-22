@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   BadgeCheck,
+  Copy,
   Eye,
   Flag,
   Inbox,
@@ -56,6 +57,7 @@ import {
   ROLE_MANAGEMENT,
   TRASH_RETENTION_DAYS,
   formatDate,
+  formatDateTime,
   validityLabel,
   verificationPath,
   isParamedic,
@@ -68,16 +70,21 @@ import {
   addAdmin,
   addManagement,
   addPractitioner,
+  bulkUpdateEntries,
   deleteAdmin,
   deleteManagement,
   deletePractitioner,
+  entryHistory,
   findPeselMatches,
   listAdmins,
   listManagement,
   listPractitioners,
+  logEntriesExport,
   revealPesel,
+  undoEntryChange,
   updatePractitioner,
 } from '@/lib/registry.functions'
+import { downloadText } from '@/lib/download'
 
 import { AuditLogPanel } from '@/components/admin/audit-log-panel'
 import { MfaForm } from '@/components/admin/mfa-form'
@@ -110,6 +117,7 @@ import { SessionsDialog } from '@/components/admin/sessions-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
 import { BadgeCard } from '@/components/badge-card'
 import { getBranding } from '@/lib/branding.functions'
+import { StaffNotice } from '@/components/staff-notice'
 import { TodoPanel } from '@/components/admin/todo-panel'
 import { WhatsNewBar } from '@/components/admin/whats-new-bar'
 import { OnboardingDialog, onboardingSeen } from '@/components/admin/onboarding-dialog'
@@ -562,6 +570,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   }, [logVersion])
   const [counts, setCounts] = useState({ requests: 0, reports: 0, alerts: 0 })
   const [peselIds, setPeselIds] = useState<Set<number>>(new Set())
+  const [selected, setSelected] = useState<Set<number>>(new Set())
   const [query, setQuery] = useState('')
   const [professionFilter, setProfessionFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -738,6 +747,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           </Button>
         </div>
       </div>
+      <StaffNotice />
       <WhatsNewBar />
       {isManagement && !isAdmin && (
         <OnboardingDialog email={user.email} open={tutorialOpen} onOpenChange={setTutorialOpen} />
@@ -1097,9 +1107,32 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
               </p>
             ) : (
               <div className="mt-4">
+                {isAdmin && selected.size > 0 && (
+                  <BulkBar
+                    ids={[...selected]}
+                    rows={rows}
+                    onClear={() => setSelected(new Set())}
+                    onDone={async () => {
+                      setSelected(new Set())
+                      await refreshAll()
+                    }}
+                  />
+                )}
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {isAdmin && (
+                        <TableHead className="w-8">
+                          <input
+                            type="checkbox"
+                            aria-label="Zaznacz wszystkie widoczne wpisy"
+                            checked={visible.length > 0 && visible.every((row) => selected.has(row.id))}
+                            onChange={(e) =>
+                              setSelected(e.target.checked ? new Set(visible.map((row) => row.id)) : new Set())
+                            }
+                          />
+                        </TableHead>
+                      )}
                       <SortHead label="Imię i nazwisko" sortKey="name" sort={sort} onSort={toggleSort} />
                       <TableHead>PESEL</TableHead>
                       <SortHead label="PWZ" sortKey="pwz" sort={sort} onSort={toggleSort} />
@@ -1111,7 +1144,24 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                   </TableHeader>
                   <TableBody>
                     {visible.map((row) => (
-                      <TableRow key={row.id}>
+                      <TableRow key={row.id} data-state={selected.has(row.id) ? 'selected' : undefined}>
+                        {isAdmin && (
+                          <TableCell className="w-8">
+                            <input
+                              type="checkbox"
+                              aria-label={`Zaznacz wpis ${row.firstName} ${row.lastName}`}
+                              checked={selected.has(row.id)}
+                              onChange={(e) =>
+                                setSelected((current) => {
+                                  const next = new Set(current)
+                                  if (e.target.checked) next.add(row.id)
+                                  else next.delete(row.id)
+                                  return next
+                                })
+                              }
+                            />
+                          </TableCell>
+                        )}
                         <TableCell className="font-medium">
                           {row.firstName} {row.lastName}
                           <span className="block text-xs font-normal text-muted-foreground">
@@ -1211,6 +1261,58 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   )
 }
 
+/**
+ * A visible PESEL cannot be selected or copied by hand; the "Kopiuj" button copies it and the
+ * copy is written to the audit log. (Screenshots cannot be prevented; the watermark covers those.)
+ */
+function ProtectedPesel({ id, value, onHide }: { id: number; value: string; onHide?: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const block = (e: { preventDefault: () => void }) => e.preventDefault()
+
+  async function copy() {
+    setBusy(true)
+    try {
+      const result = await revealPesel({ data: { id, purpose: 'kopiowanie' } })
+      if (result.error || !result.pesel) {
+        toast.error(result.error ?? 'Nie udało się skopiować.')
+        return
+      }
+      await navigator.clipboard.writeText(result.pesel)
+      toast.success('PESEL skopiowany (zapisano w dzienniku).')
+    } catch {
+      toast.error('Nie udało się skopiować numeru PESEL.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className="select-none font-mono"
+        onCopy={block}
+        onCut={block}
+        onDragStart={block}
+        onClick={onHide}
+        title={onHide ? 'Ukryj' : undefined}
+        style={{ cursor: onHide ? 'pointer' : 'default' }}
+      >
+        {value}
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void copy()}
+        className="text-muted-foreground hover:text-foreground"
+        aria-label="Kopiuj PESEL (zapisywane w dzienniku)"
+        title="Kopiuj (zapisywane w dzienniku)"
+      >
+        <Copy className="size-3.5" />
+      </button>
+    </span>
+  )
+}
+
 /** PESEL is hidden by default; showing it is audited and it hides itself again after a while. */
 function PeselCell({ id, value }: { id: number; value: string | null }) {
   const [pesel, setPesel] = useState<string | null>(null)
@@ -1235,17 +1337,10 @@ function PeselCell({ id, value }: { id: number; value: string | null }) {
     }
   }
 
-  if (value) return <span className="font-mono">{value}</span>
+  if (value) return <ProtectedPesel id={id} value={value} />
   if (pesel !== null) {
     return (
-      <button
-        type="button"
-        title="Ukryj"
-        className="font-mono hover:underline"
-        onClick={() => setPesel(null)}
-      >
-        {pesel}
-      </button>
+      <ProtectedPesel id={id} value={pesel} onHide={() => setPesel(null)} />
     )
   }
   return (
@@ -1725,6 +1820,15 @@ function EditDialog({
               {error}
             </p>
           )}
+          {row && (
+            <EntryHistory
+              rowId={row.id}
+              onUndone={async () => {
+                onClose()
+                await onSaved()
+              }}
+            />
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Anuluj
@@ -1736,6 +1840,168 @@ function EditDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** Admin: latest changes of one entry, with undo of the newest one. */
+function EntryHistory({ rowId, onUndone }: { rowId: number; onUndone: () => Promise<void> }) {
+  const [items, setItems] = useState<Awaited<ReturnType<typeof entryHistory>> | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setItems(null)
+    entryHistory({ data: { id: rowId } })
+      .then((result) => {
+        if (active) setItems(result)
+      })
+      .catch(() => {
+        if (active) setItems([])
+      })
+    return () => {
+      active = false
+    }
+  }, [rowId])
+
+  async function undo() {
+    if (!window.confirm('Cofnąć ostatnią zmianę tego wpisu?')) return
+    setBusy(true)
+    try {
+      const result = await undoEntryChange({ data: { id: rowId } })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success('Cofnięto ostatnią zmianę.')
+      await onUndone()
+    } catch {
+      toast.error('Nie udało się cofnąć zmiany.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">Historia zmian wpisu</p>
+        <Button type="button" variant="outline" size="sm" disabled={busy || !items || items.length === 0} onClick={() => void undo()}>
+          Cofnij ostatnią zmianę
+        </Button>
+      </div>
+      {items === null ? (
+        <p className="text-xs text-muted-foreground">Wczytywanie…</p>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Brak zapisanych zmian.</p>
+      ) : (
+        <ul className="max-h-32 divide-y overflow-y-auto rounded-md border text-xs">
+          {items.map((item) => (
+            <li key={item.id} className="px-2 py-1">
+              <span className="text-muted-foreground">{formatDateTime(item.createdAt)} · {item.actor}</span>
+              <br />
+              {item.summary}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+type BulkRow = { id: number; firstName: string; lastName: string; pesel: string | null; pwz: string; profession: string; specialization: string | null; status: EntryStatus; expiresAt: string | null }
+
+function csvCell(value: string | null) {
+  return `"${(value ?? '').replace(/"/g, '""')}"`
+}
+
+/** Admin: actions on the ticked entries: status, validity, trash and CSV export. */
+function BulkBar({
+  ids,
+  rows,
+  onClear,
+  onDone,
+}: {
+  ids: number[]
+  rows: BulkRow[]
+  onClear: () => void
+  onDone: () => Promise<void>
+}) {
+  const [status, setStatus] = useState<EntryStatus>('suspended')
+  const [expiry, setExpiry] = useState('lifetime')
+  const [busy, setBusy] = useState(false)
+
+  async function run(action: Parameters<typeof bulkUpdateEntries>[0]['data']['action'], question: string) {
+    if (!window.confirm(`${question} (${ids.length} wpisów)`)) return
+    setBusy(true)
+    try {
+      const result = await bulkUpdateEntries({ data: { ids, action } })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(`Gotowe. Zmieniono wpisów: ${result.done}.`)
+      await onDone()
+    } catch {
+      toast.error('Nie udało się wykonać akcji zbiorczej.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function expiryValue(): string | null {
+    if (expiry === 'lifetime') return null
+    const date = new Date()
+    if (expiry === '30d') date.setDate(date.getDate() + 30)
+    else if (expiry === '3m') date.setMonth(date.getMonth() + 3)
+    else date.setFullYear(date.getFullYear() + 1)
+    return date.toISOString()
+  }
+
+  async function exportCsv() {
+    const chosen = rows.filter((row) => ids.includes(row.id))
+    const header = ['Imię', 'Nazwisko', 'PESEL', 'PWZ', 'Zawód', 'Specjalizacja', 'Status', 'Ważność']
+    const lines = chosen.map((row) =>
+      [row.firstName, row.lastName, row.pesel, row.pwz, row.profession, row.specialization, ENTRY_STATUSES[row.status], validityLabel(row.expiresAt)]
+        .map(csvCell)
+        .join(';'),
+    )
+    try {
+      await logEntriesExport({ data: { count: chosen.length } })
+    } catch {
+      toast.error('Nie udało się zapisać eksportu w dzienniku, plik nie został utworzony.')
+      return
+    }
+    downloadText('wpisy-rejestru.csv', `\uFEFF${[header.map(csvCell).join(';'), ...lines].join('\r\n')}`, 'text/csv;charset=utf-8')
+  }
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 p-2 text-sm">
+      <strong>Zaznaczono: {ids.length}</strong>
+      <select className={filterSelectClass} value={status} onChange={(e) => setStatus(e.target.value as EntryStatus)} aria-label="Nowy status">
+        {ENTRY_STATUS_KEYS.map((k) => (
+          <option key={k} value={k}>{ENTRY_STATUSES[k]}</option>
+        ))}
+      </select>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => void run({ type: 'status', status }, `Zmienić status na „${ENTRY_STATUSES[status]}”?`)}>
+        Zmień status
+      </Button>
+      <select className={filterSelectClass} value={expiry} onChange={(e) => setExpiry(e.target.value)} aria-label="Nowa ważność">
+        <option value="lifetime">Dożywotnio</option>
+        <option value="30d">30 dni od dziś</option>
+        <option value="3m">3 miesiące od dziś</option>
+        <option value="12m">12 miesięcy od dziś</option>
+      </select>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => void run({ type: 'expiry', expiresAt: expiryValue() }, 'Ustawić nowy termin ważności?')}>
+        Ustaw ważność
+      </Button>
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => void exportCsv()}>
+        Eksport CSV
+      </Button>
+      <Button size="sm" variant="destructive" disabled={busy} onClick={() => void run({ type: 'delete' }, 'Przenieść zaznaczone wpisy do kosza?')}>
+        Do kosza
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onClear}>Odznacz</Button>
+    </div>
   )
 }
 

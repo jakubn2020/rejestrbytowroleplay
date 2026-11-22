@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { db } from '../../db'
 import { reports } from '../../db/schema'
 import { requireAdmin } from './auth-server'
+import { FLAG_KEYS, readFlag } from './site-settings-server'
 import {
   clientIp,
   countEvents,
@@ -15,7 +16,16 @@ import {
 
 const REPORTS_PER_HOUR = 3
 
+export const REPORT_CATEGORIES = {
+  data: 'Błąd w danych wpisu',
+  removal: 'Prośba o usunięcie wpisu',
+  question: 'Pytanie do obsługi',
+  tech: 'Problem techniczny ze stroną',
+  other: 'Inna sprawa',
+} as const
+
 const reportInput = z.object({
+  category: z.enum(['data', 'removal', 'question', 'tech', 'other']).default('data'),
   subject: z.string().trim().min(2, 'Podaj, którego wpisu dotyczy zgłoszenie').max(120),
   message: z
     .string()
@@ -40,6 +50,9 @@ export const submitReport = createServerFn({ method: 'POST' })
   .validator(reportInput)
   .handler(async ({ data }): Promise<ReportResult> => {
     if (data.website) return { ok: true } // bot: pretend it worked
+    if (!(await readFlag(FLAG_KEYS.reports))) {
+      return { ok: false, error: 'Przyjmowanie zgłoszeń jest chwilowo wyłączone.' }
+    }
     const ip = clientIp()
     if (ip) {
       const sent = await countEvents({ kind: 'report', ip, minutes: 60 })
@@ -53,6 +66,7 @@ export const submitReport = createServerFn({ method: 'POST' })
     const [created] = await db
       .insert(reports)
       .values({
+        category: data.category,
         subject: data.subject,
         message: data.message,
         contact: data.contact || null,
@@ -60,7 +74,7 @@ export const submitReport = createServerFn({ method: 'POST' })
       .returning({ id: reports.id, createdAt: reports.createdAt })
     await recordEvent({ kind: 'report', ip })
     await notifyAdmins(
-      'Nowe zgłoszenie błędu w rejestrze',
+      `Nowe zgłoszenie (${REPORT_CATEGORIES[data.category]})`,
       `Dotyczy: ${data.subject}\n\n${data.message}${data.contact ? `\n\nKontakt: ${data.contact}` : ''}`,
     )
     return { ok: true, code: reportCode(created.id, created.createdAt) }
@@ -97,6 +111,7 @@ export const listReports = createServerFn({ method: 'GET' })
     return rows.map((row) => ({
       id: row.id,
       createdAt: row.createdAt.toISOString(),
+      category: row.category,
       subject: row.subject,
       message: row.message,
       contact: row.contact,

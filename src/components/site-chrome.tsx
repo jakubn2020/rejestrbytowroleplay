@@ -5,6 +5,7 @@ import { AppearanceMenu } from '@/components/appearance-menu'
 import { CountBadge } from '@/components/count-badge'
 import { Button } from '@/components/ui/button'
 import { getHeaderBadge } from '@/lib/alerts.functions'
+import { getPublicNotice } from '@/lib/owner-controls.functions'
 import { getBranding } from '@/lib/branding.functions'
 import { SITE_VERSION } from '@/lib/changelog'
 import { activeSeason } from '@/lib/seasons'
@@ -189,6 +190,7 @@ export function SiteHeader() {
   const [badge, setBadge] = useState<number | null>(null)
   const [closed, setClosed] = useState<string | null>(null)
   const [logo, setLogo] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ text: string; level: 'info' | 'warning' } | null>(null)
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
@@ -223,6 +225,19 @@ export function SiteHeader() {
     }
   }, [pathname])
 
+  // Owner's notice for visitors.
+  useEffect(() => {
+    let active = true
+    getPublicNotice()
+      .then((result) => {
+        if (active) setNotice(result)
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [pathname])
+
   // Red circle for signed-in admins when something waits for them.
   useEffect(() => {
     let active = true
@@ -246,6 +261,14 @@ export function SiteHeader() {
       {closed && (
         <div role="alert" className="bg-red-700 px-5 py-2 text-center text-sm font-semibold text-white">
           Tryb awaryjny: {closed}
+        </div>
+      )}
+      {notice && (
+        <div
+          role="status"
+          className={`px-5 py-2 text-center text-sm ${notice.level === 'warning' ? 'bg-amber-400 font-semibold text-black' : 'bg-white/15 text-white'}`}
+        >
+          {notice.text}
         </div>
       )}
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
@@ -291,7 +314,7 @@ export function SiteHeader() {
           Dla pracodawców
         </Link>
         <Link to="/zglos-blad" className="hover:text-white hover:underline">
-          Zgłoś błąd
+          Kontakt i zgłoszenia
         </Link>
         <Link to="/zmiany" className="hover:text-white hover:underline">
           Dziennik zmian

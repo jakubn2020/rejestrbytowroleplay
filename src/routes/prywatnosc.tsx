@@ -1,5 +1,8 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 
+import { LegalVersionInfo } from '@/components/legal-version-info'
+import { PRIVACY_VERSIONS } from '@/lib/legal'
+
 export const Route = createFileRoute('/prywatnosc')({
   head: () => ({ meta: [{ title: 'Polityka prywatności – Centralny Rejestr' }] }),
   component: Privacy,
@@ -31,7 +34,7 @@ const SECTIONS: { title: string; body: string[] }[] = [
     title: '4. Pliki cookie i pamięć przeglądarki',
     body: [
       'Personel logujący się do panelu otrzymuje cookie sesji (niezbędne do działania). Odwiedzający nie dostają cookies reklamowych ani śledzących.',
-      'W pamięci przeglądarki (localStorage) zapisujemy wyłącznie ustawienia wyglądu: motyw jasny/ciemny, kolor, szerokość tabeli i informację o przeczytanych nowościach. Zostają one na Twoim urządzeniu.',
+      'W pamięci przeglądarki (localStorage) zapisujemy wyłącznie ustawienia wyglądu i wygody: motyw jasny/ciemny, kolor, czcionkę, zaokrąglenie rogów, tło strony głównej, szerokość tabeli, ukrycie niektórych paneli, informację o przeczytanych nowościach i o zamknięciu komunikatu o plikach cookie. Zostają one na Twoim urządzeniu.',
     ],
   },
   {
@@ -43,7 +46,7 @@ const SECTIONS: { title: string; body: string[] }[] = [
   {
     title: '6. Twoje prawa',
     body: [
-      'Możesz poprosić o sprostowanie lub usunięcie wpisu, wysyłając zgłoszenie przez formularz „Zgłoś błąd”. Wpisy usunięte trafiają najpierw do kosza (na ograniczony czas), a potem są usuwane na stałe.',
+      'Możesz poprosić o sprostowanie lub usunięcie wpisu, wysyłając zgłoszenie przez formularz „Kontakt i zgłoszenia” (rodzaj sprawy: prośba o usunięcie wpisu). Wpisy usunięte trafiają najpierw do kosza (na ograniczony czas), a potem są usuwane na stałe.',
     ],
   },
 ]
@@ -65,6 +68,7 @@ function Privacy() {
           </section>
         ))}
       </div>
+      <LegalVersionInfo versions={PRIVACY_VERSIONS} />
       <p className="mt-6 text-sm text-muted-foreground">
         Zobacz też <Link to="/regulamin" className="underline">regulamin</Link>.
       </p>

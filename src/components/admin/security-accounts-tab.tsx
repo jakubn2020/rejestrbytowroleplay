@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { PermissionsMatrix } from '@/components/admin/permissions-matrix'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -174,6 +175,8 @@ export function SecurityAccountsTab() {
           ))}
         </ul>
       </div>
+
+      <PermissionsMatrix />
 
       <div>
         <h3 className="text-sm font-semibold">Aktywne sesje ({sessions.length})</h3>

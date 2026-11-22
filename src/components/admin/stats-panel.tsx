@@ -8,7 +8,7 @@ import { getVisitStats, type VisitStats } from '@/lib/visits.functions'
 const PAGE_NAMES: Record<string, string> = {
   '/': 'Wyszukiwarka (strona główna)',
   '/jak-to-dziala': 'Jak to działa / FAQ',
-  '/zglos-blad': 'Zgłoś błąd',
+  '/zglos-blad': 'Kontakt i zgłoszenia',
   '/weryfikacja/*': 'Weryfikacja z kodu QR',
   inne: 'Inne strony',
 }

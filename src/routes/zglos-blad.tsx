@@ -5,11 +5,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { formatDate } from '@/lib/registry'
-import { checkReportStatus, submitReport, type ReportStatusResult } from '@/lib/reports.functions'
+import {
+  REPORT_CATEGORIES,
+  checkReportStatus,
+  submitReport,
+  type ReportStatusResult,
+} from '@/lib/reports.functions'
 
 export const Route = createFileRoute('/zglos-blad')({
   head: () => ({
-    meta: [{ title: 'Zgłoś błąd w rejestrze – Centralny Rejestr' }],
+    meta: [{ title: 'Kontakt i zgłoszenia – Centralny Rejestr' }],
   }),
   component: ReportPage,
 })
@@ -28,6 +33,7 @@ function ReportPage() {
     try {
       const result = await submitReport({
         data: {
+          category: String(fields.get('category') ?? 'data') as keyof typeof REPORT_CATEGORIES,
           subject: String(fields.get('subject') ?? ''),
           message: String(fields.get('message') ?? ''),
           contact: String(fields.get('contact') ?? ''),
@@ -49,11 +55,11 @@ function ReportPage() {
   return (
     <div className="mx-auto max-w-xl px-5 py-12 sm:py-16">
       <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
-        Zgłoś błąd w rejestrze
+        Kontakt i zgłoszenia
       </h1>
       <p className="mt-3 text-muted-foreground">
-        Zauważyłeś nieprawidłowe dane albo wpis, który nie powinien się tu
-        znajdować? Opisz to poniżej. Zgłoszenie trafi do administratorów.
+        Zauważyłeś nieprawidłowe dane, chcesz usunąć wpis albo masz pytanie? Wybierz
+        rodzaj sprawy i opisz ją poniżej. Zgłoszenie trafi do administratorów.
       </p>
 
       {done ? (
@@ -80,17 +86,32 @@ function ReportPage() {
           className="mt-8 space-y-4 rounded-lg border bg-white p-6 shadow-sm"
         >
           <div className="space-y-2">
-            <Label htmlFor="subject">Którego wpisu dotyczy zgłoszenie?</Label>
+            <Label htmlFor="category">Rodzaj sprawy</Label>
+            <select
+              id="category"
+              name="category"
+              defaultValue="data"
+              className="h-9 w-full rounded-md border border-input bg-white px-3 text-sm shadow-xs"
+            >
+              {Object.entries(REPORT_CATEGORIES).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="subject">Czego dotyczy zgłoszenie?</Label>
             <Input
               id="subject"
               name="subject"
-              placeholder="Numer PWZ albo imię i nazwisko"
+              placeholder="Numer PWZ, imię i nazwisko albo temat"
               maxLength={120}
               required
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="message">Co jest nie tak?</Label>
+            <Label htmlFor="message">Opisz sprawę</Label>
             <textarea
               id="message"
               name="message"

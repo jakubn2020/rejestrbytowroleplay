@@ -22,6 +22,7 @@ import {
   notifyUser,
   releaseCooldown,
 } from './security-server'
+import { FLAG_KEYS, readFlag } from './site-settings-server'
 
 const COOLDOWN_MESSAGE =
   'Kierownictwo może złożyć jeden wniosek na 5 minut. Spróbuj ponownie później.'
@@ -54,6 +55,9 @@ export const submitRequest = createServerFn({ method: 'POST' })
         ok: false,
         error: 'Administrator dodaje osoby bezpośrednio, bez wniosku.',
       }
+    }
+    if (!(await readFlag(FLAG_KEYS.requests))) {
+      return { ok: false, error: 'Składanie wniosków jest chwilowo wyłączone przez właściciela.' }
     }
     const { person, proof } = data
     const secondsLeft = await cooldownLeft(context.identity)

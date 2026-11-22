@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { FLAG_KEYS, readFlag } from './site-settings-server'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
@@ -64,6 +65,9 @@ export const submitExpiryRequest = createServerFn({ method: 'POST' })
         ok: false,
         error: 'Administrator zmienia termin bezpośrednio w oknie edycji wpisu.',
       }
+    }
+    if (!(await readFlag(FLAG_KEYS.requests))) {
+      return { ok: false, error: 'Składanie wniosków jest chwilowo wyłączone przez właściciela.' }
     }
     const secondsLeft = await cooldownLeft(context.identity)
     if (secondsLeft > 0) return { ok: false, secondsLeft, error: COOLDOWN_MESSAGE }
