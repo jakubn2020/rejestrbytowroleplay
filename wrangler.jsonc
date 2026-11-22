@@ -6,5 +6,6 @@
   "main": "@tanstack/react-start/server-entry",
   "observability": { "enabled": true }
   // Sekrety ustawiasz poleceniem `wrangler secret put NAZWA` (lista w README):
-  // DATABASE_URL, SUPERADMIN_EMAIL, RESEND_API_KEY (opcjonalnie), EMAIL_FROM, SITE_URL
+  // DATABASE_URL, SUPERADMIN_EMAIL, RESEND_API_KEY (opcjonalnie), EMAIL_FROM, SITE_URL,
+  // GEMINI_API_KEY (moduł egzaminów; opcjonalnie GEMINI_MODEL)
 }

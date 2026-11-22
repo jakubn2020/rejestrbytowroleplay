@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { EmptyState } from '@/components/empty-state'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   ArrowDown,
   ArrowUp,
@@ -802,6 +802,9 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                 onClick={() => setShowSecurity((open) => !open)}
               >
                 <ShieldCheck className="size-4" /> Centrum bezpieczeństwa
+              </Button>
+              <Button asChild variant="outline">
+                <Link to="/egzaminy">Egzaminy (beta)</Link>
               </Button>
               <Button
                 variant={showAdmins ? 'default' : 'outline'}
@@ -1908,6 +1911,11 @@ function EntryHistory({ rowId, onUndone }: { rowId: number; onUndone: () => Prom
   )
 }
 
+type BulkAction =
+  | { type: 'status'; status: EntryStatus }
+  | { type: 'expiry'; expiresAt: string | null }
+  | { type: 'delete' }
+
 type BulkRow = { id: number; firstName: string; lastName: string; pesel: string | null; pwz: string; profession: string; specialization: string | null; status: EntryStatus; expiresAt: string | null }
 
 function csvCell(value: string | null) {
@@ -1930,7 +1938,7 @@ function BulkBar({
   const [expiry, setExpiry] = useState('lifetime')
   const [busy, setBusy] = useState(false)
 
-  async function run(action: Parameters<typeof bulkUpdateEntries>[0]['data']['action'], question: string) {
+  async function run(action: BulkAction, question: string) {
     if (!window.confirm(`${question} (${ids.length} wpisów)`)) return
     setBusy(true)
     try {

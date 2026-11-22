@@ -273,3 +273,74 @@ export const entryRevisions = pgTable('entry_revisions', {
   /** JSON: { pesel, pwz, specialization, status, expiresAt } as it was before the change. */
   before: text().notNull(),
 })
+
+// ---------------------------------------------------------------------------
+// Exam module (beta, owner only)
+// ---------------------------------------------------------------------------
+
+export const exams = pgTable('exams', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: text('created_by').notNull(),
+  title: text().notNull(),
+  /** What the lecturer typed (and/or the topic of the PDF). */
+  topic: text().notNull(),
+  durationMinutes: integer('duration_minutes').notNull().default(30),
+  passPercent: integer('pass_percent').notNull().default(60),
+})
+
+export const examQuestions = pgTable('exam_questions', {
+  id: serial().primaryKey(),
+  examId: integer('exam_id').notNull(),
+  /** Version letter: A, B or C. */
+  version: text().notNull(),
+  position: integer().notNull().default(0),
+  /** 'abcde' | 'tf' | 'open' */
+  kind: text().notNull(),
+  prompt: text().notNull(),
+  /** JSON array of 5 answer texts (abcde only). */
+  options: text().notNull().default('[]'),
+  /** abcde: index "0".."4"; tf: "true"/"false"; open: model answer for the examiner. */
+  correct: text().notNull().default(''),
+  points: integer().notNull().default(1),
+})
+
+export const examSessions = pgTable('exam_sessions', {
+  id: serial().primaryKey(),
+  examId: integer('exam_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: text('created_by').notNull(),
+  /** Secret part of the one-time link /egzamin/<token>. */
+  token: text().notNull(),
+  durationMinutes: integer('duration_minutes').notNull(),
+  /** 'lobby' | 'running' | 'finished' */
+  status: text().notNull().default('lobby'),
+  startedAt: timestamp('started_at'),
+  endsAt: timestamp('ends_at'),
+})
+
+export const examParticipants = pgTable('exam_participants', {
+  id: serial().primaryKey(),
+  sessionId: integer('session_id').notNull(),
+  login: text().notNull(),
+  /** Secret of the browser that claimed the login (null = not claimed yet). */
+  token: text(),
+  version: text(),
+  seed: integer().notNull().default(0),
+  joinedAt: timestamp('joined_at'),
+  submittedAt: timestamp('submitted_at'),
+  lastSeenAt: timestamp('last_seen_at'),
+  lastActivityAt: timestamp('last_activity_at'),
+  /** JSON object: question id -> answer. */
+  answers: text().notNull().default('{}'),
+  /** JSON object: question id -> 'pass' | 'fail' (open questions). */
+  openGrades: text('open_grades').notNull().default('{}'),
+})
+
+export const examEvents = pgTable('exam_events', {
+  id: serial().primaryKey(),
+  participantId: integer('participant_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  kind: text().notNull(),
+  details: text(),
+})
