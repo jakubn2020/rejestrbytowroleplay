@@ -3,6 +3,8 @@
   "name": "rejestrbytowroleplay",
   "compatibility_date": "2026-11-20",
   "compatibility_flags": ["nodejs_compat"],
+  // Zmienne dodane w panelu Cloudflare nie są usuwane przy `wrangler deploy`:
+  "keep_vars": true,
   "main": "@tanstack/react-start/server-entry",
   "observability": { "enabled": true }
   // Sekrety ustawiasz poleceniem `wrangler secret put NAZWA` (lista w README):
