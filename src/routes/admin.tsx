@@ -106,6 +106,9 @@ import {
 } from '@/components/admin/requests-panels'
 import { SessionsDialog } from '@/components/admin/sessions-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
+import { TodoPanel } from '@/components/admin/todo-panel'
+import { WhatsNewBar } from '@/components/admin/whats-new-bar'
+import { OnboardingDialog, onboardingSeen } from '@/components/admin/onboarding-dialog'
 import { getAdminCounts } from '@/lib/alerts.functions'
 import { getMyBadge } from '@/lib/activity.functions'
 import { getSiteStatus, setMaintenance } from '@/lib/site.functions'
@@ -505,6 +508,9 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const isAdmin = user.roles?.includes(ROLE_ADMIN) ?? false
   const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
   const canAdd = isAdmin || isManagement
+  useEffect(() => {
+    if (isManagement && !isAdmin && !onboardingSeen(user.email)) setTutorialOpen(true)
+  }, [isManagement, isAdmin, user.email])
   const [rows, setRows] = useState<Row[] | null>(null)
   const [editing, setEditing] = useState<Row | null>(null)
   const [managementOpen, setManagementOpen] = useState(false)
@@ -522,6 +528,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [maintenance, setMaintenanceState] = useState<{ closed: boolean; message: string } | null>(null)
   const [expiryRow, setExpiryRow] = useState<Row | null>(null)
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  const [tutorialOpen, setTutorialOpen] = useState(false)
   const [counts, setCounts] = useState({ requests: 0, reports: 0, alerts: 0 })
   const [peselIds, setPeselIds] = useState<Set<number>>(new Set())
   const [query, setQuery] = useState('')
@@ -686,6 +693,11 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           Zalogowano jako <strong className="text-foreground">{user.email}</strong>
         </p>
         <div className="flex gap-2">
+          {isManagement && !isAdmin && (
+            <Button variant="outline" size="sm" onClick={() => setTutorialOpen(true)}>
+              Samouczek
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setSessionsOpen(true)}>
             <Monitor className="size-4" /> Urządzenia
           </Button>
@@ -697,6 +709,21 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           </Button>
         </div>
       </div>
+      <WhatsNewBar />
+      {isManagement && !isAdmin && (
+        <OnboardingDialog email={user.email} open={tutorialOpen} onOpenChange={setTutorialOpen} />
+      )}
+      {isAdmin && (
+        <TodoPanel
+          key={`todo-${logVersion}`}
+          onOpen={(target) => {
+            if (target === 'requests') setShowRequests(true)
+            else if (target === 'reports') setShowReports(true)
+            else if (target === 'alerts') setShowAlerts(true)
+            else setShowSecurity(true)
+          }}
+        />
+      )}
       <ChangePasswordDialog
         open={passwordOpen}
         onClose={() => setPasswordOpen(false)}

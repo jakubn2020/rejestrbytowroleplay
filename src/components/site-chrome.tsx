@@ -5,6 +5,7 @@ import { CountBadge } from '@/components/count-badge'
 import { Button } from '@/components/ui/button'
 import { getHeaderBadge } from '@/lib/alerts.functions'
 import { SITE_VERSION } from '@/lib/changelog'
+import { activeSeason } from '@/lib/seasons'
 import { getSiteStatus } from '@/lib/site.functions'
 import { trackVisit } from '@/lib/visits.functions'
 
@@ -51,6 +52,24 @@ const PALETTES: { name: string; hue: number }[] = [
   { name: 'Bursztyn', hue: 70 },
 ]
 
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+/** The seasonal theme applies only when it is switched on and the visitor has not picked a colour. */
+function applySeason() {
+  const season = activeSeason()
+  const saved = Number.parseInt(readStored('palette-hue') ?? '', 10)
+  const hasOwnColour = saved >= 0 && saved <= 360
+  if (season && !hasOwnColour && readStored('seasonal') !== 'off') {
+    document.documentElement.style.setProperty('--hue', String(season.hue))
+  }
+}
+
 function applyHue(hue: number | null) {
   const root = document.documentElement
   if (hue === null) root.style.removeProperty('--hue')
@@ -61,21 +80,41 @@ function applyHue(hue: number | null) {
   } catch {
     // storage may be blocked; the choice then lasts until reload
   }
+  if (hue === null) applySeason()
 }
 
 /** Colour theme picker: ready-made palettes or a custom hue; remembered in this browser. */
 function PaletteMenu() {
   const [open, setOpen] = useState(false)
   const [hue, setHue] = useState(258)
+  const [seasonal, setSeasonal] = useState(true)
+  const season = activeSeason()
 
   useEffect(() => {
     try {
       const saved = parseInt(localStorage.getItem('palette-hue') ?? '', 10)
       if (saved >= 0 && saved <= 360) setHue(saved)
+      setSeasonal(localStorage.getItem('seasonal') !== 'off')
     } catch {
       // ignore
     }
+    applySeason()
   }, [])
+
+  function toggleSeasonal(on: boolean) {
+    setSeasonal(on)
+    try {
+      if (on) localStorage.removeItem('seasonal')
+      else localStorage.setItem('seasonal', 'off')
+    } catch {
+      // ignore
+    }
+    // Re-evaluate from the default colour.
+    document.documentElement.style.removeProperty('--hue')
+    const saved = Number.parseInt(readStored('palette-hue') ?? '', 10)
+    if (saved >= 0 && saved <= 360) document.documentElement.style.setProperty('--hue', String(saved))
+    else applySeason()
+  }
 
   function choose(next: number | null) {
     setHue(next ?? 258)
@@ -117,6 +156,10 @@ function PaletteMenu() {
               </li>
             ))}
           </ul>
+          <label className="mt-3 flex items-center gap-2 text-xs">
+            <input type="checkbox" checked={seasonal} onChange={(e) => toggleSeasonal(e.target.checked)} />
+            Motywy sezonowe{season ? ` (teraz: ${season.name})` : ''}
+          </label>
           <label className="mt-3 block text-xs text-muted-foreground" htmlFor="palette-hue">
             Własny kolor
           </label>
@@ -224,6 +267,9 @@ export function SiteHeader() {
         </Link>
         <Link to="/jak-to-dziala" className="hover:text-white hover:underline">
           Jak to działa
+        </Link>
+        <Link to="/dla-pracodawcow" className="hover:text-white hover:underline">
+          Dla pracodawców
         </Link>
         <Link to="/zglos-blad" className="hover:text-white hover:underline">
           Zgłoś błąd

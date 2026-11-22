@@ -12,6 +12,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.2',
+    date: '2026-11-22',
+    title: 'Dla pracodawców, regulamin i pulpit administratora',
+    changes: [
+      'Nowa strona „Dla pracodawców” z instrukcją weryfikacji wpisu w rejestrze.',
+      'Regulamin i polityka prywatności (dostępne ze strony „Jak to działa”).',
+      'Motywy sezonowe: kolory zmieniają się w okolicach świąt, jeśli nie wybrano własnej palety (można wyłączyć w menu kolorów).',
+      'Panel: pasek „Co nowego” po zalogowaniu, gdy zmieni się wersja strony.',
+      'Samouczek dla nowych kont kierownictwa (otwiera się sam raz, potem przyciskiem „Samouczek”).',
+      'Administratorzy mają na górze panelu listę „Do zrobienia teraz”: wnioski, zgłoszenia, alerty, wygasające PWZ i kopie zapasowe.',
+    ],
+  },
+  {
     version: '3.1',
     date: '2026-11-22',
     title: 'Szerokość tabeli na suwaku',

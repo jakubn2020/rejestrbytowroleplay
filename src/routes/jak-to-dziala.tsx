@@ -122,6 +122,12 @@ function HowItWorks() {
         </Link>
         .
       </p>
+      <p className="mt-8 text-sm text-muted-foreground">
+        Pracodawca? Zobacz{' '}
+        <Link to="/dla-pracodawcow" className="underline">jak zweryfikować pracownika</Link>. Więcej:{' '}
+        <Link to="/regulamin" className="underline">regulamin</Link>,{' '}
+        <Link to="/prywatnosc" className="underline">polityka prywatności</Link>.
+      </p>
     </div>
   )
 }
