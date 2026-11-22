@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import {
   ArrowDown,
@@ -496,6 +496,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
       // storage unavailable: keep the default
     }
   }, [])
+  const resizeRef = useRef<{ x: number; width: number } | null>(null)
   function setTableWidth(next: number) {
     setTableWidthState(next)
     try {
@@ -920,6 +921,35 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
               transform: 'translateX(-50%)',
             }}
           >
+          {(['left', 'right'] as const).map((side) => (
+            <div
+              key={side}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Przeciągnij, aby zmienić szerokość tabeli"
+              title="Przeciągnij, aby zmienić szerokość tabeli"
+              className={`absolute inset-y-0 z-10 w-3 cursor-ew-resize touch-none rounded bg-transparent transition-colors hover:bg-primary/30 active:bg-primary/40 ${side === 'left' ? '-left-1.5' : '-right-1.5'}`}
+              onPointerDown={(e) => {
+                e.preventDefault()
+                e.currentTarget.setPointerCapture(e.pointerId)
+                resizeRef.current = { x: e.clientX, width: e.currentTarget.parentElement?.offsetWidth ?? tableWidth }
+              }}
+              onPointerMove={(e) => {
+                const start = resizeRef.current
+                if (!start) return
+                const dx = (e.clientX - start.x) * (side === 'left' ? -1 : 1)
+                // the table is centred, so each pixel dragged widens it on both sides
+                const next = Math.round(start.width + dx * 2)
+                setTableWidth(Math.min(MAX_TABLE_WIDTH, Math.max(MIN_TABLE_WIDTH, next)))
+              }}
+              onPointerUp={() => {
+                resizeRef.current = null
+              }}
+              onPointerCancel={() => {
+                resizeRef.current = null
+              }}
+            />
+          ))}
           <Panel>
             <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">
@@ -930,23 +960,13 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                   : ` (${rows.length})`
                 : ''}
             </h2>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              Szerokość tabeli
-              <input
-                type="range"
-                min={MIN_TABLE_WIDTH}
-                max={MAX_TABLE_WIDTH}
-                step={25}
-                value={tableWidth}
-                onChange={(e) => setTableWidth(Number(e.target.value))}
-                aria-label="Szerokość tabeli"
-                className="w-32"
-              />
-              <span className="w-16 font-mono">{tableWidth} px</span>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              Szerokość: przeciągnij lewy lub prawy brzeg tabeli
+              <span className="font-mono">{tableWidth} px</span>
               <Button type="button" variant="ghost" size="sm" onClick={() => setTableWidth(DEFAULT_TABLE_WIDTH)}>
                 Resetuj
               </Button>
-            </label>
+            </div>
             </div>
             {rows && rows.length > 0 && (
               <div className="mt-4 space-y-2">
