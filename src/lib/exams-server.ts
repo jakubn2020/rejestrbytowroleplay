@@ -59,11 +59,10 @@ export type GenerateInput = {
 export async function generateExamWithAi(input: GenerateInput): Promise<Record<'A' | 'B' | 'C', QuestionDraft[]>> {
   const key = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
   if (!key) {
-    // Names only (never values) of similar variables, to spot a typo in the secret's name.
-    const similar = Object.keys(process.env).filter((name) => /gemini|google|api_key/i.test(name))
+    // Names only (never values) of everything the site can see, to find where the secret went.
+    const names = Object.keys(process.env).sort()
     throw new Error(
-      `Strona nie widzi klucza GEMINI_API_KEY (wdrożona wersja go nie ma). Ustaw go: pnpm wrangler secret put GEMINI_API_KEY, a potem pnpm run deploy. ` +
-        `Podobne zmienne widoczne dla strony: ${similar.length ? similar.join(', ') : 'brak'}.`,
+      `Strona nie widzi klucza GEMINI_API_KEY. Zmienne widoczne dla strony: ${names.length ? names.join(', ') : 'brak żadnej'}.`,
     )
   }
   const model = (process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim()
