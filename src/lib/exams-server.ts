@@ -20,13 +20,7 @@ const aiQuestion = z.object({
   correct: z.union([z.string(), z.number(), z.boolean()]).transform(String),
 })
 
-const aiResponse = z.object({
-  versions: z.object({
-    A: z.array(aiQuestion),
-    B: z.array(aiQuestion),
-    C: z.array(aiQuestion),
-  }),
-})
+const aiResponse = z.object({ questions: z.array(aiQuestion) })
 
 /** Turns a raw AI question into a valid one, or null when it cannot be used. */
 function clean(raw: z.infer<typeof aiQuestion>): QuestionDraft | null {
@@ -73,7 +67,14 @@ async function pickFlashModel(key: string): Promise<string | null> {
   return candidates.find((name) => /flash/.test(name) && !/lite|image|tts|live|audio|embed|preview|exp/.test(name)) ?? null
 }
 
-/** Asks Gemini for three versions (A, B, C) of the exam. Throws an Error with a Polish message. */
+/** Total time allowed for the AI (the platform cuts requests off after about 100 s). */
+const AI_TIMEOUT_MS = 80_000
+const TEMPORARY = [429, 500, 502, 503, 504]
+
+/**
+ * Asks Gemini for the three versions (A, B, C) of the exam. The three versions are requested in
+ * parallel (each answer is a third of the size, so it is much faster). Throws an Error with a Polish message.
+ */
 export async function generateExamWithAi(input: GenerateInput): Promise<Record<'A' | 'B' | 'C', QuestionDraft[]>> {
   const key = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
   if (!key) {
@@ -84,91 +85,97 @@ export async function generateExamWithAi(input: GenerateInput): Promise<Record<'
     )
   }
   const model = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim()
+  const deadline = Date.now() + AI_TIMEOUT_MS
 
-  const prompt = `Przygotuj egzamin w TRZECH wersjach: A, B i C. Wersje mają dotyczyć tego samego materiału i mieć podobny poziom trudności, ale zawierać RÓŻNE pytania (nie powtarzaj pytań między wersjami).
+  const promptFor = (version: 'A' | 'B' | 'C') => `Przygotuj WERSJĘ ${version} egzaminu. Inne wersje (A, B, C) powstają osobno na tym samym materiale, więc wybierz własny, możliwie niestandardowy zestaw pytań i zagadnień (wersja ${version}), tak aby nie były to najbardziej oczywiste pytania.
 
-Każda wersja ma zawierać dokładnie:
+Wersja ma zawierać dokładnie:
 - ${input.nAbcde} pytań zamkniętych wielokrotnego wyboru (kind "abcde"): "options" to dokładnie 5 odpowiedzi (bez liter A-E na początku), a "correct" to numer poprawnej odpowiedzi 0-4 (dokładnie jedna poprawna),
 - ${input.nTf} pytań prawda/fałsz (kind "tf"): "prompt" to twierdzenie, "options" to pusta lista, "correct" to "true" albo "false",
-- ${input.nOpen} pytań otwartych (kind "open"): "options" to pusta lista, a "correct" to krótki wzorcowy zarys poprawnej odpowiedzi dla egzaminatora.
+- ${input.nOpen} pytań otwartych (kind "open"): "options" to pusta lista, a "correct" to krótki wzorcowy zarys poprawnej odpowiedzi dla egzaminatora (1-3 zdania).
 
 Poprawne odpowiedzi w pytaniach zamkniętych rozłóż równomiernie, nie ustawiaj ich zawsze na tej samej pozycji. Pytania mają być jednoznaczne i oparte na materiale.
 
 Format odpowiedzi:
-{"versions":{"A":[{"kind":"abcde","prompt":"...","options":["...","...","...","...","..."],"correct":"2"}],"B":[...],"C":[...]}}
+{"questions":[{"kind":"abcde","prompt":"...","options":["...","...","...","...","..."],"correct":"2"},{"kind":"tf","prompt":"...","options":[],"correct":"true"},{"kind":"open","prompt":"...","options":[],"correct":"..."}]}
 
 Materiał / zagadnienia od wykładowcy:
 ${input.topic.trim() || '(patrz załączony plik PDF)'}`
 
-  const parts: unknown[] = [{ text: prompt }]
-  if (input.pdfBase64) parts.push({ inline_data: { mime_type: 'application/pdf', data: input.pdfBase64 } })
-
-  const call = (modelName: string) =>
-    fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
+  const call = (modelName: string, version: 'A' | 'B' | 'C') => {
+    const parts: unknown[] = [{ text: promptFor(version) }]
+    if (input.pdfBase64) parts.push({ inline_data: { mime_type: 'application/pdf', data: input.pdfBase64 } })
+    return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())),
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: 'user', parts }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.8 },
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.9 },
       }),
     })
+  }
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-  // 429/500/503 are usually temporary (the model is overloaded): retry a few times with a pause.
-  const callWithRetry = async (modelName: string) => {
-    let result = await call(modelName)
-    for (const delay of [3000, 8000, 15000]) {
-      if (![429, 500, 502, 503, 504].includes(result.status)) break
-      await sleep(delay)
-      result = await call(modelName)
+  // One quick retry for temporary errors; more would exceed the platform's time limit.
+  const callWithRetry = async (modelName: string, version: 'A' | 'B' | 'C') => {
+    let result = await call(modelName, version)
+    if (TEMPORARY.includes(result.status) && deadline - Date.now() > 20_000) {
+      await sleep(3000)
+      result = await call(modelName, version)
     }
     return result
   }
 
-  let response: Response
-  let usedModel = model
-  try {
-    response = await callWithRetry(model)
+  let activeModel = model
+  const fetchVersion = async (version: 'A' | 'B' | 'C'): Promise<Response> => {
+    let response = await callWithRetry(activeModel, version)
     // The default model name may have been retired: pick the newest available Flash model instead.
     if (response.status === 404) {
       const fallback = await pickFlashModel(key)
-      if (fallback && fallback !== model) {
-        usedModel = fallback
-        response = await callWithRetry(fallback)
+      if (fallback && fallback !== activeModel) {
+        activeModel = fallback
+        response = await callWithRetry(fallback, version)
       }
     }
-  } catch {
-    throw new Error('Nie udało się połączyć z usługą AI. Spróbuj ponownie za chwilę.')
+    return response
   }
-  if (!response.ok) {
-    const temporary = [429, 500, 502, 503, 504].includes(response.status)
+
+  let responses: Response[]
+  try {
+    responses = await Promise.all(VERSIONS.map((version) => fetchVersion(version)))
+  } catch {
     throw new Error(
-      temporary
-        ? `Usługa AI jest chwilowo przeciążona (${response.status}) mimo kilku prób. Spróbuj ponownie za minutę lub dwie.`
-        : `Usługa AI zwróciła błąd (${response.status}) dla modelu „${usedModel}”. Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.`,
+      'AI nie odpowiedziało na czas (limit 80 s). Zmniejsz liczbę pytań albo rozmiar pliku PDF i spróbuj ponownie.',
+    )
+  }
+  const failed = responses.find((response) => !response.ok)
+  if (failed) {
+    throw new Error(
+      TEMPORARY.includes(failed.status)
+        ? `Usługa AI jest chwilowo przeciążona (${failed.status}). Spróbuj ponownie za minutę lub dwie.`
+        : `Usługa AI zwróciła błąd (${failed.status}) dla modelu „${activeModel}”. Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.`,
     )
   }
 
-  let text: string | undefined
-  try {
-    const body = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-    text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('')
-  } catch {
-    text = undefined
-  }
-  if (!text) throw new Error('Usługa AI nie zwróciła odpowiedzi. Spróbuj ponownie.')
-
-  const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
-  let parsed: z.infer<typeof aiResponse>
-  try {
-    parsed = aiResponse.parse(JSON.parse(json))
-  } catch {
-    throw new Error('Odpowiedź AI miała nieprawidłowy format. Spróbuj ponownie.')
-  }
   const result = { A: [], B: [], C: [] } as Record<'A' | 'B' | 'C', QuestionDraft[]>
-  for (const v of VERSIONS) {
-    result[v] = parsed.versions[v].map(clean).filter((q): q is QuestionDraft => q !== null)
+  for (const [index, response] of responses.entries()) {
+    let text: string | undefined
+    try {
+      const body = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+      text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('')
+    } catch {
+      text = undefined
+    }
+    if (!text) continue
+    const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+    try {
+      const parsed = aiResponse.parse(JSON.parse(json))
+      result[VERSIONS[index]] = parsed.questions.map(clean).filter((q): q is QuestionDraft => q !== null)
+    } catch {
+      // this version stays empty; the lecturer can add questions by hand
+    }
   }
   if (VERSIONS.every((v) => result[v].length === 0)) {
     throw new Error('AI nie wygenerowało poprawnych pytań. Zmień opis lub plik i spróbuj ponownie.')
