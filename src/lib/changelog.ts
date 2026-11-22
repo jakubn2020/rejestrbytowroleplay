@@ -12,6 +12,19 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.3',
+    date: '2026-11-22',
+    title: 'Wygląd na życzenie, plakietki i numer zgłoszenia',
+    changes: [
+      'Nowe menu „Wygląd strony” w nagłówku: czcionka, zaokrąglenie rogów, czarny tryb OLED, wyłączanie animacji i przypięty górny pasek. Animacje wyłączają się też automatycznie przy ustawieniu „ogranicz ruch” w systemie.',
+      'Górny pasek przypina się przy przewijaniu i robi się półprzezroczysty z rozmyciem (na szerokich ekranach).',
+      'Płynne pojawianie się stron i paneli, licznik wpisów na stronie głównej liczy od zera, a puste listy mają ilustracje.',
+      'Plakietka w trzech układach (pozioma, pionowa, mini) oraz podgląd plakietki na żywo przy edycji wpisu.',
+      'Zgłoszenie błędu dostaje numer (ZG-…), po którym można sprawdzić jego status na stronie „Zgłoś błąd”.',
+      'Właściciel: własne logo w nagłówku, wyłączanie znaku wodnego panelu oraz hasło tymczasowe dla konta (widoczne jednorazowo; istniejących haseł nie da się odczytać, bo są zapisane jako skrót).',
+    ],
+  },
+  {
     version: '3.2',
     date: '2026-11-22',
     title: 'Dla pracodawców, regulamin i pulpit administratora',

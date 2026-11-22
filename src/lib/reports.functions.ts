@@ -10,6 +10,7 @@ import {
   countEvents,
   notifyAdmins,
   recordEvent,
+  sha256,
 } from './security-server'
 
 const REPORTS_PER_HOUR = 3
@@ -26,7 +27,13 @@ const reportInput = z.object({
   website: z.string().max(200).optional(),
 })
 
-export type ReportResult = { ok: true } | { ok: false; error: string }
+export type ReportResult = { ok: true; code?: string } | { ok: false; error: string }
+
+/** Case number shown to the reporter: id plus a short checksum, so numbers cannot be guessed one by one. */
+function reportCode(id: number, createdAt: Date): string {
+  const check = sha256(`report:${id}:${createdAt.toISOString()}`).slice(0, 6).toUpperCase()
+  return `ZG-${id}-${check}`
+}
 
 /** Public: report a mistake in the registry (limited per address). */
 export const submitReport = createServerFn({ method: 'POST' })
@@ -43,17 +50,39 @@ export const submitReport = createServerFn({ method: 'POST' })
         }
       }
     }
-    await db.insert(reports).values({
-      subject: data.subject,
-      message: data.message,
-      contact: data.contact || null,
-    })
+    const [created] = await db
+      .insert(reports)
+      .values({
+        subject: data.subject,
+        message: data.message,
+        contact: data.contact || null,
+      })
+      .returning({ id: reports.id, createdAt: reports.createdAt })
     await recordEvent({ kind: 'report', ip })
     await notifyAdmins(
       'Nowe zgłoszenie błędu w rejestrze',
       `Dotyczy: ${data.subject}\n\n${data.message}${data.contact ? `\n\nKontakt: ${data.contact}` : ''}`,
     )
-    return { ok: true }
+    return { ok: true, code: reportCode(created.id, created.createdAt) }
+  })
+
+export type ReportStatusResult =
+  | { found: false }
+  | { found: true; status: 'open' | 'done'; createdAt: string; handledAt: string | null }
+
+/** Public: status of a report by its case number (no content is returned). */
+export const checkReportStatus = createServerFn({ method: 'POST' })
+  .validator(z.object({ code: z.string().trim().toUpperCase().regex(/^ZG-\d{1,9}-[0-9A-F]{6}$/) }))
+  .handler(async ({ data }): Promise<ReportStatusResult> => {
+    const id = Number(data.code.split('-')[1])
+    const [row] = await db.select().from(reports).where(eq(reports.id, id)).limit(1)
+    if (!row || reportCode(row.id, row.createdAt) !== data.code) return { found: false }
+    return {
+      found: true,
+      status: row.status === 'done' ? 'done' : 'open',
+      createdAt: row.createdAt.toISOString(),
+      handledAt: row.handledAt ? row.handledAt.toISOString() : null,
+    }
   })
 
 /** Admin only: all reports, open ones first. */

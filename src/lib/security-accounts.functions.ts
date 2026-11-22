@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { db } from '../../db'
 import { authSessions, mfaSessions, passwordResets, securityEvents, users } from '../../db/schema'
 import { requireSuperAdmin } from './auth-server'
+import { hashPassword } from './password'
 import { ROLE_ADMIN } from './registry'
 import { AUTH_COOKIE, superAdminEmail } from './session-server'
 import {
@@ -157,6 +158,34 @@ export const createResetLink = createServerFn({ method: 'POST' })
       details: 'Wygenerowano jednorazowy link do resetu hasła',
     })
     return { path, expiresInMinutes: 60 }
+  })
+
+/**
+ * Owner only: sets a freshly generated password and returns it once.
+ * Passwords are stored only as irreversible hashes, so an existing password can never be shown;
+ * this is the way to get a password you can hand over. The account must change it at once.
+ */
+export const setTemporaryPassword = createServerFn({ method: 'POST' })
+  .middleware([requireSuperAdmin])
+  .validator(emailInput)
+  .handler(async ({ data, context }) => {
+    const target = await targetOf(data.email)
+    const alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    const bytes = randomBytes(16)
+    const password = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('') + '#7'
+    await db
+      .update(users)
+      .set({ passwordHash: await hashPassword(password), mustChangePassword: true })
+      .where(eq(users.id, target.id))
+    await endAllSessions(target.id, target.email)
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'temp_password',
+      target: target.email,
+      details: 'Ustawiono hasło tymczasowe (konto musi je zmienić po zalogowaniu)',
+    })
+    return { password }
   })
 
 export type HistoryRow = {

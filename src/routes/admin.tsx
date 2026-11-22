@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { EmptyState } from '@/components/empty-state'
 import { createFileRoute } from '@tanstack/react-router'
 import {
   ArrowDown,
@@ -56,6 +57,7 @@ import {
   TRASH_RETENTION_DAYS,
   formatDate,
   validityLabel,
+  verificationPath,
   isParamedic,
   isPesel,
   isPwz,
@@ -106,6 +108,8 @@ import {
 } from '@/components/admin/requests-panels'
 import { SessionsDialog } from '@/components/admin/sessions-dialog'
 import { TrashPanel } from '@/components/admin/trash-panel'
+import { BadgeCard } from '@/components/badge-card'
+import { getBranding } from '@/lib/branding.functions'
 import { TodoPanel } from '@/components/admin/todo-panel'
 import { WhatsNewBar } from '@/components/admin/whats-new-bar'
 import { OnboardingDialog, onboardingSeen } from '@/components/admin/onboarding-dialog'
@@ -530,6 +534,12 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [expiryRow, setExpiryRow] = useState<Row | null>(null)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const [tutorialOpen, setTutorialOpen] = useState(false)
+  const [watermarkOn, setWatermarkOn] = useState(true)
+  useEffect(() => {
+    getBranding()
+      .then((branding) => setWatermarkOn(branding.watermark))
+      .catch(() => undefined)
+  }, [logVersion])
   const [counts, setCounts] = useState({ requests: 0, reports: 0, alerts: 0 })
   const [peselIds, setPeselIds] = useState<Set<number>>(new Set())
   const [query, setQuery] = useState('')
@@ -688,7 +698,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
   return (
     <div className="space-y-8">
-      <Watermark email={user.email} />
+      {watermarkOn && <Watermark email={user.email} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Zalogowano jako <strong className="text-foreground">{user.email}</strong>
@@ -1148,9 +1158,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
                   </TableBody>
                 </Table>
                 {visible.length === 0 && (
-                  <p className="mt-4 text-center text-muted-foreground">
-                    Brak osób pasujących do wybranych kryteriów.
-                  </p>
+                  <EmptyState kind="people">Brak osób pasujących do wybranych kryteriów.</EmptyState>
                 )}
               </div>
             )}
@@ -1480,7 +1488,7 @@ function MyBadgeLine() {
 /** Wraps an opened panel with a visible "Zamknij" button. */
 function Closable({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
-    <div>
+    <div className="animate-in fade-in slide-in-from-top-2 duration-300">
       <div className="mb-1 flex justify-end">
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>
           <X className="size-4" /> Zamknij
@@ -1661,6 +1669,24 @@ function EditDialog({
               ))}
             </select>
           </div>
+          {row && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Podgląd plakietki na żywo</p>
+              <BadgeCard
+                scale={1.1}
+                layout="horizontal"
+                url={`${typeof window === 'undefined' ? '' : window.location.origin}${verificationPath(pwz || row.pwz)}`}
+                badge={{
+                  firstName: row.firstName,
+                  lastName: row.lastName,
+                  pesel,
+                  pwz: pwz || row.pwz,
+                  profession: row.profession,
+                  expiresAt: row.expiresAt ?? null,
+                }}
+              />
+            </div>
+          )}
           <ExpiryField
             id="edit-expiry"
             value={expiry}

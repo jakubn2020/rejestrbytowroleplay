@@ -3,16 +3,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Printer } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { makeQr, qrPath } from '@/lib/qr'
-import {
-  BADGE_TITLES,
-  CERTIFICATE_ISSUER,
-  ENTRY_STATUSES,
-  professionKind,
-  validityLabel,
-  verificationPath,
-  type ProfessionKind,
-} from '@/lib/registry'
+import { BADGE_LAYOUTS, BadgeCard, type BadgeLayout } from '@/components/badge-card'
+import { ENTRY_STATUSES, verificationPath } from '@/lib/registry'
 import { getBadge } from '@/lib/registry.functions'
 
 export const Route = createFileRoute('/plakietka/$id')({
@@ -32,27 +24,6 @@ type State =
   | { phase: 'missing' }
   | { phase: 'error' }
   | { phase: 'ready'; badge: Badge }
-
-const THEMES: Record<
-  ProfessionKind,
-  { background: string; accent: string; stripe: string }
-> = {
-  doctor: {
-    background: 'linear-gradient(135deg, #e3f3f5 0%, #b7dde2 55%, #eaf6f7 100%)',
-    accent: '#1f6f7a',
-    stripe: '#2a8c9c',
-  },
-  nurse: {
-    background: 'linear-gradient(135deg, #e4f3e7 0%, #cfe6d4 45%, #ecd9e6 100%)',
-    accent: '#2f6b45',
-    stripe: '#8a4a6b',
-  },
-  paramedic: {
-    background: 'linear-gradient(135deg, #e5ebf7 0%, #cdd7ee 50%, #f3d9de 100%)',
-    accent: '#1d3b7a',
-    stripe: '#b3262e',
-  },
-}
 
 function BadgePage() {
   const { id } = Route.useParams()
@@ -113,10 +84,8 @@ function BadgePage() {
 }
 
 function BadgeView({ badge }: { badge: Badge }) {
-  const kind = professionKind(badge.profession)
-  const theme = THEMES[kind]
+  const [layout, setLayout] = useState<BadgeLayout>('horizontal')
   const url = `${window.location.origin}${verificationPath(badge.pwz)}`
-  const { d, size } = qrPath(makeQr(url), 1)
 
   return (
     <div>
@@ -130,109 +99,29 @@ function BadgeView({ badge }: { badge: Badge }) {
         </p>
       )}
 
-      {/* The card is 85.6 × 54 mm; on screen it is enlarged, when printing it is real size. */}
-      <div className="h-[81mm] w-[128.4mm] max-w-full overflow-hidden print:h-[54mm] print:w-[85.6mm]">
-        <div
-          className="h-[54mm] w-[85.6mm] origin-top-left scale-150 overflow-hidden rounded-[3mm] border border-black/20 print:scale-100"
-          style={{ background: theme.background, color: '#10202b' }}
-        >
-          <div className="flex h-full flex-col p-[3mm]">
-            <div className="flex gap-[3mm]">
-              <div className="w-[26mm] shrink-0">
-                <div className="rounded-[1mm] p-[1mm]" style={{ background: '#fff' }}>
-                  <svg
-                    viewBox={`0 0 ${size} ${size}`}
-                    shapeRendering="crispEdges"
-                    role="img"
-                    aria-label={`Kod QR prowadzący do ${url}`}
-                    className="block h-[24mm] w-[24mm]"
-                  >
-                    <rect width={size} height={size} fill="#fff" />
-                    <path d={d} fill="#000" />
-                  </svg>
-                </div>
-                <p className="mt-[1mm] text-center text-[4pt] leading-tight">
-                  Zeskanuj, aby sprawdzić, czy wpis jest prawdziwy i aktualny
-                </p>
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <p
-                  className="text-[8pt] font-extrabold leading-tight tracking-wide"
-                  style={{ color: theme.accent }}
-                >
-                  PRAWO WYKONYWANIA ZAWODU
-                </p>
-                <p
-                  className="text-[6.5pt] font-bold leading-tight"
-                  style={{ color: theme.stripe }}
-                >
-                  {BADGE_TITLES[kind]}
-                </p>
-                <div
-                  className="mt-[1mm] h-[0.4mm] w-full"
-                  style={{ background: theme.stripe }}
-                />
-
-                <dl className="mt-[1.5mm] space-y-[1.3mm]">
-                  <BadgeField label="Imię (imiona) i nazwisko">
-                    <span className="text-[8.5pt] font-bold leading-tight">
-                      {badge.firstName} {badge.lastName}
-                    </span>
-                  </BadgeField>
-                  <BadgeField label="Tytuł zawodowy">
-                    <span className="text-[7.5pt] font-semibold">
-                      {BADGE_TITLES[kind]}
-                    </span>
-                  </BadgeField>
-                  <BadgeField label="Numer PESEL">
-                    <span className="break-all font-mono text-[7.5pt] font-semibold">
-                      {badge.pesel}
-                    </span>
-                  </BadgeField>
-                  <BadgeField label="Numer seryjny dokumentu">
-                    <span className="font-mono text-[7.5pt] font-semibold">
-                      {badge.pwz}
-                    </span>
-                  </BadgeField>
-                </dl>
-              </div>
-            </div>
-
-            <div className="mt-auto border-t border-black/20 pt-[0.8mm] text-[3.6pt] leading-tight">
-              <p>
-                {CERTIFICATE_ISSUER} · Ważność: {validityLabel(badge.expiresAt)}
-              </p>
-              <p className="italic">
-                Dokument fikcyjny, wystawiony wyłącznie na potrzeby roleplayu.
-              </p>
-            </div>
-          </div>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center gap-2 print:hidden" role="group" aria-label="Układ plakietki">
+        <span className="text-sm text-muted-foreground">Układ:</span>
+        {BADGE_LAYOUTS.map((option) => (
+          <Button
+            key={option.key}
+            type="button"
+            size="sm"
+            variant={layout === option.key ? 'default' : 'outline'}
+            onClick={() => setLayout(option.key)}
+          >
+            {option.label}
+          </Button>
+        ))}
       </div>
 
+      {/* The card is a real ID-1 size; on screen it is enlarged, when printing it is real size. */}
+      <BadgeCard badge={badge} url={url} layout={layout} />
+
       <p className="mt-4 text-xs text-muted-foreground print:hidden">
-        Plakietka zawiera PESEL, dlatego jest widoczna tylko dla kierownictwa i
+        Plakietka zawiera PESEL (poza układem „Mini”), dlatego jest widoczna tylko dla kierownictwa i
         administratorów. Kod QR prowadzi do publicznej strony, która pokazuje
         wyłącznie, czy wpis jest prawdziwy i aktualny: {url}
       </p>
-    </div>
-  )
-}
-
-function BadgeField({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <dt className="text-[3.8pt] font-semibold uppercase leading-none tracking-wide opacity-70">
-        {label}
-      </dt>
-      <dd className="mt-[0.3mm]">{children}</dd>
     </div>
   )
 }

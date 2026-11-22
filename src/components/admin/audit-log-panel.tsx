@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { EmptyState } from '@/components/empty-state'
 import { Download, ScrollText } from 'lucide-react'
 
 import { Panel } from '@/components/admin/panel'
@@ -184,7 +185,7 @@ export function AuditLogPanel() {
           Nie udało się wczytać dziennika zdarzeń.
         </p>
       ) : rows.length === 0 ? (
-        <p className="mt-4 text-muted-foreground">Brak zapisanych zdarzeń.</p>
+        <EmptyState kind="log">Brak zapisanych zdarzeń.</EmptyState>
       ) : visible.length === 0 ? (
         <p className="mt-4 text-muted-foreground">
           Brak zdarzeń pasujących do filtrów.

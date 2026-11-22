@@ -4,7 +4,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { submitReport } from '@/lib/reports.functions'
+import { formatDate } from '@/lib/registry'
+import { checkReportStatus, submitReport, type ReportStatusResult } from '@/lib/reports.functions'
 
 export const Route = createFileRoute('/zglos-blad')({
   head: () => ({
@@ -17,6 +18,7 @@ function ReportPage() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
+  const [code, setCode] = useState<string | null>(null)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -32,7 +34,10 @@ function ReportPage() {
           website: String(fields.get('website') ?? ''),
         },
       })
-      if (result.ok) setDone(true)
+      if (result.ok) {
+        setCode(result.code ?? null)
+        setDone(true)
+      }
       else setError(result.error)
     } catch {
       setError('Sprawdź, czy opis ma co najmniej 10 znaków, i spróbuj ponownie.')
@@ -60,6 +65,14 @@ function ReportPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             Administratorzy sprawdzą je tak szybko, jak to możliwe.
           </p>
+          {code && (
+            <p className="mt-4 text-sm">
+              Numer zgłoszenia: <strong className="font-mono text-base">{code}</strong>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Zapisz go. Pozwoli sprawdzić status zgłoszenia poniżej na tej stronie.
+              </span>
+            </p>
+          )}
         </div>
       ) : (
         <form
@@ -114,6 +127,58 @@ function ReportPage() {
           </Button>
         </form>
       )}
+      <StatusCheck />
     </div>
+  )
+}
+
+function StatusCheck() {
+  const [code, setCode] = useState('')
+  const [result, setResult] = useState<ReportStatusResult | 'error' | null>(null)
+  const [pending, setPending] = useState(false)
+
+  async function check(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setPending(true)
+    try {
+      setResult(await checkReportStatus({ data: { code } }))
+    } catch {
+      setResult('error')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <form onSubmit={check} className="mt-8 space-y-3 rounded-lg border bg-white p-6 shadow-sm">
+      <h2 className="font-semibold">Sprawdź status zgłoszenia</h2>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Numer zgłoszenia, np. ZG-12-A1B2C3"
+          aria-label="Numer zgłoszenia"
+          className="font-mono"
+          required
+        />
+        <Button type="submit" variant="outline" disabled={pending}>
+          {pending ? 'Sprawdzam…' : 'Sprawdź'}
+        </Button>
+      </div>
+      <div aria-live="polite" className="text-sm">
+        {result === 'error' && <p className="text-destructive">Numer ma nieprawidłowy format (ZG-liczba-6 znaków).</p>}
+        {result && result !== 'error' && !result.found && (
+          <p className="text-muted-foreground">Nie znaleziono zgłoszenia o takim numerze.</p>
+        )}
+        {result && result !== 'error' && result.found && (
+          <p>
+            {result.status === 'done'
+              ? `Zgłoszenie rozpatrzone${result.handledAt ? ` (${formatDate(result.handledAt)})` : ''}.`
+              : 'Zgłoszenie czeka na sprawdzenie przez administratorów.'}{' '}
+            <span className="text-muted-foreground">Wysłano {formatDate(result.createdAt)}.</span>
+          </p>
+        )}
+      </div>
+    </form>
   )
 }

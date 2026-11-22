@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { EmptyState } from '@/components/empty-state'
 import { Check, Inbox, X } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -184,7 +185,7 @@ export function RequestsPanel({ onChanged }: { onChanged: () => void }) {
       ) : (
         <>
           {pending.length === 0 ? (
-            <p className="mt-4 text-muted-foreground">Brak wniosków oczekujących na decyzję.</p>
+            <EmptyState kind="inbox">Brak wniosków oczekujących na decyzję.</EmptyState>
           ) : (
             <ul className="mt-4 divide-y rounded-md border">
               {pending.map((row) => (

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { LogIn, Moon, Palette, Sun } from 'lucide-react'
+import { AppearanceMenu } from '@/components/appearance-menu'
 import { CountBadge } from '@/components/count-badge'
 import { Button } from '@/components/ui/button'
 import { getHeaderBadge } from '@/lib/alerts.functions'
+import { getBranding } from '@/lib/branding.functions'
 import { SITE_VERSION } from '@/lib/changelog'
 import { activeSeason } from '@/lib/seasons'
 import { getSiteStatus } from '@/lib/site.functions'
@@ -186,6 +188,21 @@ export function SiteHeader() {
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const [badge, setBadge] = useState<number | null>(null)
   const [closed, setClosed] = useState<string | null>(null)
+  const [logo, setLogo] = useState<string | null>(null)
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    getBranding()
+      .then((branding) => setLogo(branding.logo))
+      .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   // Anonymous visit counter (not the admin panel or badges).
   useEffect(() => {
@@ -224,7 +241,7 @@ export function SiteHeader() {
   }, [pathname])
 
   return (
-    <header className="bg-[var(--registry-navy)] text-white print:hidden">
+    <header data-scrolled={scrolled} className="site-header bg-[var(--registry-navy)] text-white print:hidden">
       <div className="h-1 bg-[var(--registry-red)]" />
       {closed && (
         <div role="alert" className="bg-red-700 px-5 py-2 text-center text-sm font-semibold text-white">
@@ -234,12 +251,14 @@ export function SiteHeader() {
       <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
         <Link
           to="/"
-          className="font-[family-name:var(--font-heading)] text-lg leading-tight font-semibold sm:text-xl"
+          className="flex items-center gap-3 font-[family-name:var(--font-heading)] text-lg leading-tight font-semibold sm:text-xl"
         >
-          Centralny Rejestr Lekarzy, Pielęgniarzy i Ratowników Medycznych
+          {logo && <img src={logo} alt="" className="h-10 w-auto max-w-[5rem] shrink-0 object-contain" />}
+          <span>Centralny Rejestr Lekarzy, Pielęgniarzy i Ratowników Medycznych</span>
         </Link>
         <div className="flex shrink-0 items-center gap-2">
           <PaletteMenu />
+          <AppearanceMenu />
           <ThemeToggle />
           <Button
             asChild
@@ -279,6 +298,16 @@ export function SiteHeader() {
         </Link>
       </nav>
     </header>
+  )
+}
+
+/** Fades each page in (opacity only, so fixed elements such as the watermark are unaffected). */
+export function PageTransition({ children }: { children: React.ReactNode }) {
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  return (
+    <div key={pathname} className="page-enter">
+      {children}
+    </div>
   )
 }
 

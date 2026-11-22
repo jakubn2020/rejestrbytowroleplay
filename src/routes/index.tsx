@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { Search } from 'lucide-react'
 
+import { CountUp } from '@/components/count-up'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -187,7 +188,7 @@ function Field({
         {label}
       </dt>
       <dd className={mono ? 'mt-1 font-mono text-lg' : 'mt-1 text-base'}>
-        {value}
+        <CountUp value={value} />
       </dd>
     </div>
   )

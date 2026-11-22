@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { EmptyState } from '@/components/empty-state'
 import { ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -92,7 +93,7 @@ export function AlertsPanel({ onChanged }: { onChanged: () => void }) {
           Nie udało się wczytać alertów.
         </p>
       ) : rows.length === 0 ? (
-        <p className="mt-4 text-muted-foreground">Brak alertów. Wszystko wygląda spokojnie.</p>
+        <EmptyState kind="calm">Brak alertów. Wszystko wygląda spokojnie.</EmptyState>
       ) : (
         <ul className="mt-4 divide-y rounded-md border">
           {rows.map((row) => (

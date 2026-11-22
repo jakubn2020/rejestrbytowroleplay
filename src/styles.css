@@ -205,3 +205,97 @@ code {
     --foreground: oklch(0.22 0.03 var(--hue));
   }
 }
+
+/* ---------- Appearance (personal settings, see appearance-menu.tsx) ---------- */
+.badge-scale {
+  --s: 1.5;
+}
+@media print {
+  .badge-scale {
+    --s: 1;
+  }
+}
+
+html[data-font='serif'] {
+  --font-body: 'Source Serif 4', Georgia, serif;
+}
+html[data-font='system'] {
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+html[data-font='readable'] {
+  --font-body: Verdana, Tahoma, 'Trebuchet MS', sans-serif;
+  letter-spacing: 0.01em;
+}
+html[data-radius='sharp'] {
+  --radius: 0.15rem;
+}
+html[data-radius='round'] {
+  --radius: 1.1rem;
+}
+
+/* True black for OLED screens (dark mode only). */
+html[data-oled='on'].dark {
+  --background: oklch(0 0 0);
+  --card: oklch(0.12 0.01 var(--hue));
+  --popover: oklch(0.12 0.01 var(--hue));
+  --secondary: oklch(0.2 0.015 var(--hue));
+  --muted: oklch(0.2 0.015 var(--hue));
+  --accent: oklch(0.2 0.015 var(--hue));
+  --border: oklch(0.27 0.015 var(--hue));
+  --input: oklch(0.27 0.015 var(--hue));
+}
+
+/* Header: pinned on wider screens; glass effect once the page is scrolled. */
+.site-header {
+  transition:
+    background-color 0.25s ease,
+    backdrop-filter 0.25s ease;
+}
+@media (min-width: 768px) {
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  html[data-sticky='off'] .site-header {
+    position: static;
+  }
+}
+.site-header[data-scrolled='true'] {
+  background-color: color-mix(in oklab, var(--registry-navy) 80%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+/* Gentle entrance animations. Opacity only, so fixed elements inside keep working. */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.page-enter {
+  animation: page-enter 0.35s ease-out;
+}
+
+/* Reduced motion: the system setting, or the "Animacje" switch in the appearance menu. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+html[data-motion='off'] *,
+html[data-motion='off'] *::before,
+html[data-motion='off'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

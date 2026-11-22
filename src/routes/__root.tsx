@@ -3,7 +3,7 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { NotFoundPage } from '@/components/error-pages'
-import { SiteFooter, SiteHeader } from '@/components/site-chrome'
+import { PageTransition, SiteFooter, SiteHeader } from '@/components/site-chrome'
 
 import '../styles.css'
 
@@ -50,7 +50,7 @@ export const Route = createRootRoute({
       {
         // Sets the saved (or system) colour scheme before the first paint.
         children:
-          "try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark');var h=parseInt(localStorage.getItem('palette-hue'),10);if(h>=0&&h<=360)document.documentElement.style.setProperty('--hue',String(h))}catch(e){}",
+          "try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark');var h=parseInt(localStorage.getItem('palette-hue'),10);if(h>=0&&h<=360)document.documentElement.style.setProperty('--hue',String(h));var a=JSON.parse(localStorage.getItem('appearance')||'{}');for(var k in a){if(a[k])document.documentElement.dataset[k]=String(a[k])}}catch(e){}",
       },
     ],
     links: [
@@ -80,7 +80,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <TooltipProvider>
           <div className="flex min-h-screen flex-col">
             <SiteHeader />
-            <main className="flex-1">{children}</main>
+            <main className="flex-1">
+              <PageTransition>{children}</PageTransition>
+            </main>
             <SiteFooter />
           </div>
         </TooltipProvider>

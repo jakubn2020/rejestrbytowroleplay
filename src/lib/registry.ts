@@ -82,6 +82,8 @@ export const AUDIT_ACTION_LABELS = {
   incident: 'Incydent bezpieczeństwa',
   backup: 'Kopia zapasowa rejestru',
   restore: 'Przywrócenie rejestru z kopii',
+  branding: 'Zmiana logo lub znaku wodnego',
+  temp_password: 'Wygenerowano hasło tymczasowe konta',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS

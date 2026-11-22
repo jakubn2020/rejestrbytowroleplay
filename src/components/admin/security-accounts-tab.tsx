@@ -18,6 +18,7 @@ import {
   freezeAccount,
   invalidateAllPasswords,
   listAccounts,
+  setTemporaryPassword,
   setAccountLock,
   signOutSession,
   type AccountRow,
@@ -43,6 +44,7 @@ export function SecurityAccountsTab() {
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [history, setHistory] = useState<{ email: string; rows: HistoryRow[] } | null>(null)
+  const [tempPassword, setTempPassword] = useState<{ email: string; password: string } | null>(null)
   const [link, setLink] = useState<{ email: string; url: string } | null>(null)
 
   const load = useCallback(async () => {
@@ -87,6 +89,17 @@ export function SecurityAccountsTab() {
       setLink({ email, url: `${window.location.origin}${result.path}` })
     } catch {
       toast.error('Nie udało się utworzyć linku.')
+    }
+  }
+
+  async function makeTemp(email: string) {
+    if (!window.confirm(`Ustawić dla ${email} nowe hasło tymczasowe? Obecne hasło przestanie działać, a konto zostanie wylogowane.`)) return
+    try {
+      const result = await setTemporaryPassword({ data: { email } })
+      setTempPassword({ email, password: result.password })
+      await load()
+    } catch {
+      toast.error('Nie udało się ustawić hasła.')
     }
   }
 
@@ -153,6 +166,7 @@ export function SecurityAccountsTab() {
                     <Button variant="outline" size="sm" disabled={busy} onClick={() => freeze(account.email)}>Zamroź</Button>
                     <Button variant="outline" size="sm" disabled={busy} onClick={() => void run(() => forcePasswordChange({ data: { email: account.email } }), 'Konto musi zmienić hasło.')}>Wymuś zmianę hasła</Button>
                     <Button variant="outline" size="sm" disabled={busy} onClick={() => void makeLink(account.email)}>Link resetu hasła</Button>
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => void makeTemp(account.email)}>Hasło tymczasowe</Button>
                   </>
                 )}
               </div>
@@ -221,6 +235,19 @@ export function SecurityAccountsTab() {
           </DialogHeader>
           <input readOnly value={link?.url ?? ''} onFocus={(e) => e.currentTarget.select()} className="w-full rounded border bg-white px-2 py-1 font-mono text-xs" />
           <Button onClick={() => { void navigator.clipboard?.writeText(link?.url ?? ''); toast.success('Skopiowano.') }}>Kopiuj link</Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={tempPassword !== null} onOpenChange={(open) => !open && setTempPassword(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hasło tymczasowe: {tempPassword?.email}</DialogTitle>
+            <DialogDescription>
+              Widoczne tylko teraz. Po zamknięciu okna nie da się go odczytać, bo hasła są zapisane wyłącznie jako nieodwracalny skrót. Konto musi zmienić hasło po pierwszym logowaniu.
+            </DialogDescription>
+          </DialogHeader>
+          <input readOnly value={tempPassword?.password ?? ''} onFocus={(e) => e.currentTarget.select()} className="w-full rounded border bg-white px-2 py-1 font-mono text-sm" />
+          <Button onClick={() => { void navigator.clipboard?.writeText(tempPassword?.password ?? ''); toast.success('Skopiowano.') }}>Kopiuj hasło</Button>
         </DialogContent>
       </Dialog>
     </div>
