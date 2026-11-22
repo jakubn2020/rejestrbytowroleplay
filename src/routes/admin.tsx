@@ -533,6 +533,8 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [maintenance, setMaintenanceState] = useState<{ closed: boolean; message: string } | null>(null)
   const [expiryRow, setExpiryRow] = useState<Row | null>(null)
   const [sessionsOpen, setSessionsOpen] = useState(false)
+  // Bumped after every change so open panels (log, trash, accounts) reload themselves.
+  const [logVersion, setLogVersion] = useState(0)
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const [watermarkOn, setWatermarkOn] = useState(true)
   // "Do zrobienia teraz" can be hidden; the choice is remembered in this browser.
@@ -565,8 +567,6 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [statusFilter, setStatusFilter] = useState('')
   const [authorFilter, setAuthorFilter] = useState('')
   const [sort, setSort] = useState<Sort>({ key: 'date', dir: 'desc' })
-  // Bumped after every change so open panels (log, trash, accounts) reload themselves.
-  const [logVersion, setLogVersion] = useState(0)
 
   const refresh = useCallback(async () => {
     try {
