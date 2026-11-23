@@ -146,38 +146,52 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
       }
       examId = created.id
 
-      // The PDF was uploaded once above. Several small requests (each with its own time limit): the three versions run side by side,
-      // and within a version the closed questions and the rest are separate steps.
-      const steps = [
-        nAbcde > 0 && { nAbcde, nTf: 0, nOpen: 0 },
-        nTf + nOpen > 0 && { nAbcde: 0, nTf, nOpen },
-      ].filter((step): step is { nAbcde: number; nTf: number; nOpen: number } => Boolean(step))
+      // The PDF was uploaded once above. The requests go ONE AT A TIME (a free key allows only a few
+      // requests per minute) and a rate-limit answer is waited out before trying again.
+      const perVersion = nAbcde + nTf + nOpen
+      const steps =
+        perVersion <= 12
+          ? [{ nAbcde, nTf, nOpen }]
+          : ([
+              nAbcde > 0 && { nAbcde, nTf: 0, nOpen: 0 },
+              nTf + nOpen > 0 && { nAbcde: 0, nTf, nOpen },
+            ].filter(Boolean) as { nAbcde: number; nTf: number; nOpen: number }[])
       const letters = (['A', 'B', 'C', 'D', 'E'] as const).slice(0, versionCount)
-      const totalQuestions = (nAbcde + nTf + nOpen) * letters.length
+      const totalQuestions = perVersion * letters.length
       let added = 0
       const errors: string[] = []
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
       setProgress(`Generuję pytania… 0 z ${totalQuestions}`)
       const id = created.id
 
-      await Promise.all(
-        letters.map(async (version) => {
-          for (const step of steps) {
-            let result: Awaited<ReturnType<typeof generatePart>> | null = null
-            for (let attempt = 0; attempt < 3; attempt++) {
-              try {
-                result = await generatePart({ data: { examId: id, version, topic, ...step } })
-              } catch {
-                result = { ok: false, error: 'Błąd połączenia z serwerem.' }
-              }
-              if (result.ok) break
+      for (const version of letters) {
+        for (const step of steps) {
+          let result: Awaited<ReturnType<typeof generatePart>> | null = null
+          for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+              result = await generatePart({ data: { examId: id, version, topic, ...step } })
+            } catch {
+              result = { ok: false, error: 'Błąd połączenia z serwerem.' }
             }
-            if (result?.ok) {
-              added += result.added
-              setProgress(`Generuję pytania… ${added} z ${totalQuestions}`)
-            } else if (result) errors.push(`wersja ${version}: ${result.error}`)
+            if (result.ok) break
+            // Rate limit or overload: wait (the limit is per minute) and try again.
+            if (attempt < 3 && /429|przeciążona|Limit zapytań/.test(result.error)) {
+              for (let left = 25; left > 0; left--) {
+                setProgress(`Limit zapytań AI, czekam ${left} s… (${added} z ${totalQuestions})`)
+                await sleep(1000)
+              }
+            } else if (attempt < 3) {
+              await sleep(1500)
+            } else break
           }
-        }),
-      )
+          if (result?.ok) {
+            added += result.added
+            setProgress(`Generuję pytania… ${added} z ${totalQuestions}`)
+          } else if (result) {
+            errors.push(`wersja ${version}: ${result.error}`)
+          }
+        }
+      }
 
       if (added === 0) {
         await deleteExam({ data: { id } }).catch(() => undefined)

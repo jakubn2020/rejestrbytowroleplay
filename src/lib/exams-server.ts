@@ -176,7 +176,7 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
     let result = await call(modelName)
     // A model that does not know the thinking setting answers 400: ask again without it.
     if (result.status === 400) result = await call(modelName, false)
-    if (TEMPORARY.includes(result.status) && deadline - Date.now() > 20_000) {
+    if (result.status !== 429 && TEMPORARY.includes(result.status) && deadline - Date.now() > 20_000) {
       await sleep(3000)
       result = await call(modelName)
     }
@@ -199,13 +199,24 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
     throw new Error('AI nie odpowiedziało na czas. Spróbuj ponownie.')
   }
   if (!response.ok) {
+    // Google explains the reason (rate limit per minute, daily quota…): show it to the owner.
+    let detail = ''
+    try {
+      const body = (await response.json()) as { error?: { message?: string } }
+      detail = body.error?.message ? ` Google: ${body.error.message.slice(0, 220)}` : ''
+    } catch {
+      detail = ''
+    }
     if (response.status === 524 || response.status === 408) {
-      throw new Error(`Usługa AI przekroczyła limit czasu (${response.status}).`)
+      throw new Error(`Usługa AI przekroczyła limit czasu (${response.status}).${detail}`)
+    }
+    if (response.status === 429) {
+      throw new Error(`Limit zapytań do AI (429): za dużo zapytań naraz albo wyczerpany dzienny limit klucza.${detail}`)
     }
     throw new Error(
       TEMPORARY.includes(response.status)
-        ? `Usługa AI jest chwilowo przeciążona (${response.status}).`
-        : `Usługa AI zwróciła błąd (${response.status}) dla modelu „${usedModel}”. Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.`,
+        ? `Usługa AI jest chwilowo przeciążona (${response.status}).${detail}`
+        : `Usługa AI zwróciła błąd (${response.status}) dla modelu „${usedModel}”. Sprawdź klucz GEMINI_API_KEY i nazwę modelu GEMINI_MODEL.${detail}`,
     )
   }
 
