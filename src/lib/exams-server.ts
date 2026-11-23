@@ -281,14 +281,15 @@ function parseQuestions(text: string): QuestionDraft[] {
 /**
  * Generates one batch of questions of one version. The exam is built from several such small
  * requests (the browser sends them one after another), so every request gets its own time limit.
- * Providers: Gemini (reads PDFs) and Groq (text only). Default order is Gemini, then Groq when Gemini
- * fails or is out of quota; AI_PROVIDER=groq puts Groq first. Throws an Error with a Polish message.
+ * Providers: Gemini (reads PDFs) and Groq (text only). Groq is tried first when GROQ_API_KEY is set, then Gemini
+ * if Groq fails; AI_PROVIDER=gemini reverses the order. Throws an Error with a Polish message.
  */
 export async function generateQuestionsWithAi(input: GenerateInput): Promise<QuestionDraft[]> {
   const prompt = buildPrompt(input)
   const groqKey = (process.env.GROQ_API_KEY ?? '').trim()
   const geminiKey = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
-  const groqFirst = (process.env.AI_PROVIDER ?? '').trim().toLowerCase() === 'groq'
+  // Groq goes first whenever its key is set; AI_PROVIDER=gemini puts Gemini first instead.
+  const groqFirst = (process.env.AI_PROVIDER ?? '').trim().toLowerCase() !== 'gemini'
 
   type Attempt = () => Promise<string>
   const attempts: Attempt[] = []
