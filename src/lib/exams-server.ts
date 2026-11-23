@@ -108,6 +108,8 @@ const AI_TIMEOUT_MS = 80_000
 const TEMPORARY = [429, 500, 502, 503, 504]
 
 export type GenerateInput = {
+  /** Which AI to use; 'auto' = the site's default order. */
+  provider?: 'auto' | 'groq' | 'gemini'
   topic: string
   /** Text read from the attached PDF (the AI gets text only, so every provider can be used). */
   material?: string
@@ -314,11 +316,18 @@ export async function generateQuestionsWithAi(input: GenerateInput): Promise<Que
   type Attempt = () => Promise<string>
   const attempts: Attempt[] = []
   const gemini: Attempt = () => askGemini(input, prompt)
-  const groq: Attempt = () => askGroq(prompt, groqKey)
-  const groqUsable = Boolean(groqKey)
-  if (groqFirst && groqUsable) attempts.push(groq)
-  if (geminiKey || !groqKey) attempts.push(gemini)
-  if (!groqFirst && groqUsable) attempts.push(groq)
+  const groq: Attempt = () => {
+    if (!groqKey) throw new Error('Brak klucza GROQ_API_KEY (strona go nie widzi).')
+    return askGroq(prompt, groqKey)
+  }
+  const choice = input.provider ?? 'auto'
+  if (choice === 'groq') attempts.push(groq)
+  else if (choice === 'gemini') attempts.push(gemini)
+  else {
+    if (groqFirst && groqKey) attempts.push(groq)
+    if (geminiKey || !groqKey) attempts.push(gemini)
+    if (!groqFirst && groqKey) attempts.push(groq)
+  }
 
   const errors: string[] = []
   for (const attempt of attempts) {

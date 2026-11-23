@@ -119,6 +119,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
   const [duration, setDuration] = useState(30)
   const [pass, setPass] = useState(60)
   const [versionCount, setVersionCount] = useState(3)
+  const [provider, setProvider] = useState<'auto' | 'groq' | 'gemini'>('auto')
   const [busy, setBusy] = useState(false)
 
   const [progress, setProgress] = useState<string | null>(null)
@@ -169,7 +170,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
           let result: Awaited<ReturnType<typeof generatePart>> | null = null
           for (let attempt = 0; attempt < 4; attempt++) {
             try {
-              result = await generatePart({ data: { examId: id, version, topic, ...step } })
+              result = await generatePart({ data: { examId: id, version, topic, provider, ...step } })
             } catch {
               result = { ok: false, error: 'Błąd połączenia z serwerem.' }
             }
@@ -248,6 +249,14 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
           {number(duration, setDuration, 'Czas (min)', 5, 300)}
           {number(pass, setPass, 'Próg zdania (%)', 1, 100)}
         </div>
+        <label className="block text-sm sm:max-w-xs">
+          Które AI ma generować pytania
+          <select value={provider} onChange={(e) => setProvider(e.target.value as 'auto' | 'groq' | 'gemini')} className="mt-1 h-9 w-full rounded-md border border-input bg-white px-2 text-sm">
+            <option value="auto">Automatycznie (Groq, w razie błędu Gemini)</option>
+            <option value="groq">Tylko Groq</option>
+            <option value="gemini">Tylko Gemini</option>
+          </select>
+        </label>
         <Button type="submit" disabled={busy}>{busy ? (progress ?? 'Tworzę…') : 'Wygeneruj egzamin'}</Button>
       </form>
     </Panel>

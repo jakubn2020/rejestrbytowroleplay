@@ -121,6 +121,7 @@ export const generatePart = createServerFn({ method: 'POST' })
         nAbcde: z.number().int().min(0).max(30),
         nTf: z.number().int().min(0).max(30),
         nOpen: z.number().int().min(0).max(15),
+        provider: z.enum(['auto', 'groq', 'gemini']).default('auto'),
       })
       .refine((v) => v.nAbcde + v.nTf + v.nOpen > 0),
   )
