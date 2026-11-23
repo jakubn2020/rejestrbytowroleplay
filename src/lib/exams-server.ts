@@ -102,7 +102,7 @@ Format odpowiedzi:
 Materiał / zagadnienia od wykładowcy:
 ${input.topic.trim() || '(patrz załączony plik PDF)'}`
 
-  const call = (modelName: string, version: 'A' | 'B' | 'C') => {
+  const call = (modelName: string, version: 'A' | 'B' | 'C', lowThinking = true) => {
     const parts: unknown[] = [{ text: promptFor(version) }]
     if (input.pdfBase64) parts.push({ inline_data: { mime_type: 'application/pdf', data: input.pdfBase64 } })
     return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
@@ -112,7 +112,12 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: 'user', parts }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.9 },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.9,
+          // Long "thinking" made requests too slow; a low level is enough for writing questions.
+          ...(lowThinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+        },
       }),
     })
   }
@@ -121,6 +126,8 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
   // One quick retry for temporary errors; more would exceed the platform's time limit.
   const callWithRetry = async (modelName: string, version: 'A' | 'B' | 'C') => {
     let result = await call(modelName, version)
+    // A model that does not know the thinking setting answers 400: ask again without it.
+    if (result.status === 400) result = await call(modelName, version, false)
     if (TEMPORARY.includes(result.status) && deadline - Date.now() > 20_000) {
       await sleep(3000)
       result = await call(modelName, version)
@@ -152,6 +159,11 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
   }
   const failed = responses.find((response) => !response.ok)
   if (failed) {
+    if (failed.status === 524 || failed.status === 408) {
+      throw new Error(
+        `Usługa AI przekroczyła limit czasu (${failed.status}). Zmniejsz liczbę pytań lub rozmiar PDF, a w razie potrzeby ustaw szybszy model (sekret GEMINI_MODEL, np. wariant „flash-lite”).`,
+      )
+    }
     throw new Error(
       TEMPORARY.includes(failed.status)
         ? `Usługa AI jest chwilowo przeciążona (${failed.status}). Spróbuj ponownie za minutę lub dwie.`
