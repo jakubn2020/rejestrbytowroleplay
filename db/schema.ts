@@ -344,3 +344,17 @@ export const examEvents = pgTable('exam_events', {
   kind: text().notNull(),
   details: text(),
 })
+
+/** A moderator's request to delete an examiner account; an admin approves or rejects it. */
+export const accountRemovalRequests = pgTable('account_removal_requests', {
+  id: serial().primaryKey(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  requestedBy: text('requested_by').notNull(),
+  targetEmail: text('target_email').notNull(),
+  reason: text().notNull(),
+  /** 'pending' | 'approved' | 'rejected' */
+  status: text().notNull().default('pending'),
+  decidedBy: text('decided_by'),
+  decidedAt: timestamp('decided_at'),
+  note: text(),
+})

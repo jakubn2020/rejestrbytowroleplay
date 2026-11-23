@@ -12,7 +12,7 @@ import { db } from '../../db'
 import { authSessions, loginCodes, mfaSessions } from '../../db/schema'
 import { requireStaff } from './auth-server'
 import { getSessionUser } from './session-server'
-import { ROLE_ADMIN, ROLE_MANAGEMENT } from './registry'
+import { ROLE_ADMIN, ROLE_MANAGEMENT, hasPanelRole } from './registry'
 import {
   MFA_COOKIE,
   countEvents,
@@ -38,12 +38,12 @@ async function currentStaff() {
   const user = await getSessionUser()
   const roles = user?.roles ?? []
   const isAdmin = roles.includes(ROLE_ADMIN)
-  if (!user || (!isAdmin && !roles.includes(ROLE_MANAGEMENT))) return null
+  if (!user || !hasPanelRole(roles)) return null
   return {
     id: user.id,
     identity: user.email.toLowerCase(),
     email: user.email,
-    role: isAdmin ? ROLE_ADMIN : ROLE_MANAGEMENT,
+    role: isAdmin ? ROLE_ADMIN : roles.includes(ROLE_MANAGEMENT) ? ROLE_MANAGEMENT : (roles[0] ?? ROLE_MANAGEMENT),
   }
 }
 

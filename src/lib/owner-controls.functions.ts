@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
-import { requireStaff, requireSuperAdmin } from './auth-server'
+import { requirePanelUser, requireSuperAdmin } from './auth-server'
 import { ROLE_ADMIN } from './registry'
 import { logEvent } from './security-server'
 import {
@@ -38,7 +38,7 @@ export const getPublicNotice = createServerFn({ method: 'GET' }).handler(
 
 /** Staff only: the owner's message shown in the panel after sign-in. */
 export const getStaffNotice = createServerFn({ method: 'GET' })
-  .middleware([requireStaff])
+  .middleware([requirePanelUser])
   .handler(async (): Promise<string | null> => {
     try {
       return (await readSetting(FLAG_KEYS.noticeStaff))?.trim() || null

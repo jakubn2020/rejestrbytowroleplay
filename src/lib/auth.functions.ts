@@ -19,7 +19,7 @@ import { isWeakPassword } from './password-strength'
 import { SEC_KEYS, readNumberSetting } from './site-settings-server'
 import { hashPassword, verifyPassword } from './password'
 import { logEvent } from './security-server'
-import { ROLE_ADMIN, ROLE_MANAGEMENT } from './registry'
+import { ROLE_ADMIN, ROLE_MANAGEMENT, hasPanelRole } from './registry'
 
 /** Hash of a throwaway password, checked when the e-mail is unknown so timing does not reveal it. */
 let dummyHash: Promise<string> | null = null
@@ -46,7 +46,7 @@ export const loginUser = createServerFn({ method: 'POST' })
       dummyHash ??= hashPassword('nieistniejace-konto')
       await verifyPassword(data.password, await dummyHash)
     }
-    const staff = row?.roles.includes(ROLE_ADMIN) || row?.roles.includes(ROLE_MANAGEMENT)
+    const staff = row ? hasPanelRole(row.roles) : false
     if (!row || !valid || !staff) {
       await registerLoginFailure(data.email)
       return { ok: false, reason: 'invalid' }
@@ -101,8 +101,7 @@ export const currentUser = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AuthUser | null> => {
     const user = await getSessionUser()
     if (!user) return null
-    const staff = user.roles.includes(ROLE_ADMIN) || user.roles.includes(ROLE_MANAGEMENT)
-    return staff ? user : null
+    return hasPanelRole(user.roles) ? user : null
   },
 )
 

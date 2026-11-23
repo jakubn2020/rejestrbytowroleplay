@@ -55,6 +55,7 @@ import {
   PROFESSIONS,
   ROLE_ADMIN,
   ROLE_MANAGEMENT,
+  isExamStaffOnly,
   TRASH_RETENTION_DAYS,
   formatDate,
   formatDateTime,
@@ -121,6 +122,8 @@ import { StaffNotice } from '@/components/staff-notice'
 import { TodoPanel } from '@/components/admin/todo-panel'
 import { WhatsNewBar } from '@/components/admin/whats-new-bar'
 import { OnboardingDialog, onboardingSeen } from '@/components/admin/onboarding-dialog'
+import { ExamStaffAdmin } from '@/components/examiners/exam-staff-admin'
+import { ExamStaffPanel } from '@/components/examiners/exam-staff-panel'
 import { getAdminCounts } from '@/lib/alerts.functions'
 import { getMyBadge } from '@/lib/activity.functions'
 import { getSiteStatus, setMaintenance } from '@/lib/site.functions'
@@ -201,7 +204,7 @@ function AdminPage() {
   return (
     <div className="mx-auto max-w-[1365px] px-5 py-12">
       <h1 className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
-        Panel administratora
+        {auth.phase === 'signed-in' && isExamStaffOnly(auth.user.roles ?? []) ? 'Panel egzaminatora' : 'Panel administratora'}
       </h1>
       <div className="mt-8">
         {auth.phase === 'loading' && (
@@ -223,7 +226,10 @@ function AdminPage() {
             onLogout={() => void signOut()}
           />
         )}
-        {auth.phase === 'signed-in' && !auth.user.mustChangePassword && (
+        {auth.phase === 'signed-in' && !auth.user.mustChangePassword && isExamStaffOnly(auth.user.roles ?? []) && (
+          <ExamStaffPanel user={auth.user} onLogout={() => void signOut()} />
+        )}
+        {auth.phase === 'signed-in' && !auth.user.mustChangePassword && !isExamStaffOnly(auth.user.roles ?? []) && (
           <SignedIn user={auth.user} onLogout={() => void signOut()} />
         )}
       </div>
@@ -532,6 +538,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [showManagement, setShowManagement] = useState(false)
+  const [showExamStaff, setShowExamStaff] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
   const [showRequests, setShowRequests] = useState(false)
   const [showReports, setShowReports] = useState(false)
@@ -792,6 +799,12 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           >
             <Users className="size-4" /> Konta kierownictwa
           </Button>
+          <Button
+            variant={showExamStaff ? 'default' : 'outline'}
+            onClick={() => setShowExamStaff((open) => !open)}
+          >
+            <Users className="size-4" /> Egzaminatorzy
+          </Button>
           {user.isSuperAdmin && (
             <>
               <Button variant="outline" onClick={() => setAdminDialogOpen(true)}>
@@ -872,6 +885,11 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
             key={logVersion}
             onChanged={() => setLogVersion((version) => version + 1)}
           />
+        </Closable>
+      )}
+      {isAdmin && showExamStaff && (
+        <Closable onClose={() => setShowExamStaff(false)}>
+          <ExamStaffAdmin onChanged={() => setLogVersion((version) => version + 1)} />
         </Closable>
       )}
       {user.isSuperAdmin && showAdmins && (

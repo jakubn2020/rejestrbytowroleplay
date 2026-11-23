@@ -18,6 +18,12 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.7',
+    date: '2026-11-24',
+    title: 'Konta egzaminatorów',
+    changes: ['Ulepszenia i nowe funkcje dla obsługi strony.'],
+  },
+  {
     version: '3.6',
     date: '2026-11-23',
     title: 'Moduł egzaminów (beta)',

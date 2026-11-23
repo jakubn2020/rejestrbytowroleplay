@@ -11,6 +11,23 @@ export type Profession = (typeof PROFESSIONS)[number]
 /** Netlify Identity roles. `kierownictwo` submits requests for new entries (an admin approves them) and makes badges. */
 export const ROLE_ADMIN = 'admin'
 export const ROLE_MANAGEMENT = 'kierownictwo'
+/** `egzaminator` files requests for new entries (limited); `moderator-egzaminatorow` runs the examiner accounts. */
+export const ROLE_EXAMINER = 'egzaminator'
+export const ROLE_EXAM_MOD = 'moderator-egzaminatorow'
+
+/** Does any of these roles give access to the staff panel? */
+export function hasPanelRole(roles: readonly string[]): boolean {
+  return [ROLE_ADMIN, ROLE_MANAGEMENT, ROLE_EXAMINER, ROLE_EXAM_MOD].some((role) => roles.includes(role))
+}
+
+/** The examiner roles only (no admin / kierownictwo): they get their own, smaller panel. */
+export function isExamStaffOnly(roles: readonly string[]): boolean {
+  return (
+    !roles.includes(ROLE_ADMIN) &&
+    !roles.includes(ROLE_MANAGEMENT) &&
+    (roles.includes(ROLE_EXAMINER) || roles.includes(ROLE_EXAM_MOD))
+  )
+}
 
 /** Manual entry statuses (there is deliberately no automatic expiry date). `expired` is shown as "Nieaktywny". */
 export const ENTRY_STATUSES = {
@@ -87,6 +104,12 @@ export const AUDIT_ACTION_LABELS = {
   export: 'Eksport wpisów do pliku',
   owner_controls: 'Zmiana ogłoszeń lub przełączników funkcji',
   temp_password: 'Wygenerowano hasło tymczasowe konta',
+  examiner_add: 'Dodano konto egzaminatora lub moderatora',
+  examiner_suspend: 'Zawieszono lub odwieszono konto egzaminatora',
+  examiner_removal_request: 'Złożono wniosek o usunięcie konta egzaminatora',
+  examiner_removal_decide: 'Rozpatrzono wniosek o usunięcie konta egzaminatora',
+  examiner_delete: 'Usunięto konto egzaminatora lub moderatora',
+  examiner_limits: 'Zmiana limitów egzaminatorów',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS

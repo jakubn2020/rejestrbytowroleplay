@@ -112,3 +112,11 @@ Strona `/egzaminy` (przycisk „Egzaminy (beta)” w panelu właściciela). Wyk�
 - Groq: sekret `GROQ_API_KEY` (opcjonalnie `GROQ_MODEL`, domyślnie `llama-3.3-70b-versatile`). Gdy klucz jest ustawiony, Groq jest pierwszy, a Gemini zapasowy (`AI_PROVIDER=gemini` odwraca kolejność). Tekst z załączonego PDF jest wyciągany na serwerze (biblioteka `unpdf`, do 20 000 znaków), więc działa z każdym dostawcą; skan bez warstwy tekstu nie zadziała.
 - Wymaga migracji `20261123100000_exams` (uruchom `migration.sql` w Neon przed wdrożeniem).
 - Dostęp obecnie: tylko właściciel (`requireSuperAdmin` zaimportowane jako `requireExamStaff` w `src/lib/exams.functions.ts`; tu docelowo role wykładowcy i egzaminatora).
+
+## Role egzaminatora i moderatora egzaminatorów
+
+- Role: `egzaminator` i `moderator-egzaminatorow`. Konta tworzy administrator (panel → „Egzaminatorzy”) albo moderator (tylko egzaminatorów). Hasło początkowe trzeba zmienić przy pierwszym logowaniu. Logują się tym samym formularzem co reszta obsługi (`/admin`) i widzą własny, mniejszy panel z samouczkiem.
+- Egzaminator składa wnioski o wpis (jak kierownictwo), ale z limitem okna czasu. Domyślnie 2 wnioski na 20 minut i do 10 oczekujących naraz.
+- Moderator dodaje egzaminatorów, zawiesza ich (1 godz. – limit ustawia właściciel) i składa wnioski o usunięcie konta. Wnioski rozpatruje administrator.
+- Wszystkie limity ustawia właściciel: Centrum bezpieczeństwa → „Limity egzaminatorów i moderatorów”.
+- Wymaga migracji `20261124100000_examiner_roles` (tabela `account_removal_requests`).
