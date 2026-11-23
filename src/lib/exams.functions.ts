@@ -13,9 +13,8 @@ import {
 // Beta: only the owner. Later this becomes "lecturer or examiner" (roles added by an admin).
 import { requireSuperAdmin as requireExamStaff } from './auth-server'
 import {
-  VERSIONS,
   autoLogins,
-  generateExamWithAi,
+  generateQuestionsWithAi,
   parseJsonRecord,
   randomToken,
   summarize,
@@ -55,33 +54,22 @@ export const listExams = createServerFn({ method: 'GET' })
     }))
   })
 
-const createInput = z
-  .object({
-    title: z.string().trim().min(1, 'Podaj tytuł').max(120),
-    topic: z.string().trim().max(4000),
-    pdfBase64: z.string().max(9_000_000).optional(),
-    nAbcde: z.number().int().min(0).max(30),
-    nTf: z.number().int().min(0).max(30),
-    nOpen: z.number().int().min(0).max(15),
-    durationMinutes: z.number().int().min(5).max(300),
-    passPercent: z.number().int().min(1).max(100),
-  })
-  .refine((v) => v.nAbcde + v.nTf + v.nOpen > 0, 'Wybierz przynajmniej jedno pytanie')
-  .refine((v) => v.topic.length > 0 || Boolean(v.pdfBase64), 'Opisz zagadnienia albo dołącz plik PDF')
+const createInput = z.object({
+  title: z.string().trim().min(1, 'Podaj tytuł').max(120),
+  topic: z.string().trim().max(4000),
+  hasPdf: z.boolean(),
+  durationMinutes: z.number().int().min(5).max(300),
+  passPercent: z.number().int().min(1).max(100),
+})
 
 export type CreateExamResult = { ok: true; id: number } | { ok: false; error: string }
 
-/** Generates the three versions with AI and saves the exam as a draft the lecturer can edit. */
+/** Step 1: creates the empty exam. The questions come from `generatePart`, called one batch at a time. */
 export const createExam = createServerFn({ method: 'POST' })
   .middleware([requireExamStaff])
   .validator(createInput)
   .handler(async ({ data, context }): Promise<CreateExamResult> => {
-    let generated
-    try {
-      generated = await generateExamWithAi(data)
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : 'Nie udało się wygenerować egzaminu.' }
-    }
+    if (!data.topic && !data.hasPdf) return { ok: false, error: 'Opisz zagadnienia albo dołącz plik PDF.' }
     const [exam] = await db
       .insert(exams)
       .values({
@@ -92,11 +80,49 @@ export const createExam = createServerFn({ method: 'POST' })
         passPercent: data.passPercent,
       })
       .returning({ id: exams.id })
-    const values = VERSIONS.flatMap((version) =>
-      generated[version].map((q, position) => ({
-        examId: exam.id,
-        version,
-        position,
+    return { ok: true, id: exam.id }
+  })
+
+export type PartResult = { ok: true; added: number } | { ok: false; error: string }
+
+/**
+ * Step 2 (repeated): one small AI request for one version. Every call is a separate request with
+ * its own time limit, so even a big exam never runs into the platform's timeout.
+ */
+export const generatePart = createServerFn({ method: 'POST' })
+  .middleware([requireExamStaff])
+  .validator(
+    z
+      .object({
+        examId: z.number().int().positive(),
+        version: z.enum(['A', 'B', 'C']),
+        topic: z.string().trim().max(4000),
+        pdfBase64: z.string().max(7_000_000).optional(),
+        nAbcde: z.number().int().min(0).max(30),
+        nTf: z.number().int().min(0).max(30),
+        nOpen: z.number().int().min(0).max(15),
+      })
+      .refine((v) => v.nAbcde + v.nTf + v.nOpen > 0),
+  )
+  .handler(async ({ data }): Promise<PartResult> => {
+    let questions
+    try {
+      questions = await generateQuestionsWithAi(data)
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Nie udało się wygenerować pytań.' }
+    }
+    const [last] = await db
+      .select({ position: examQuestions.position })
+      .from(examQuestions)
+      .where(and(eq(examQuestions.examId, data.examId), eq(examQuestions.version, data.version)))
+      .orderBy(desc(examQuestions.position))
+      .limit(1)
+    const start = (last?.position ?? -1) + 1
+    await db.insert(examQuestions).values(
+      questions.map((q, index) => ({
+        examId: data.examId,
+        version: data.version,
+        position: start + index,
         kind: q.kind,
         prompt: q.prompt,
         options: JSON.stringify(q.options),
@@ -104,8 +130,7 @@ export const createExam = createServerFn({ method: 'POST' })
         points: q.points,
       })),
     )
-    if (values.length) await db.insert(examQuestions).values(values)
-    return { ok: true, id: exam.id }
+    return { ok: true, added: questions.length }
   })
 
 export type ExamDetail = {

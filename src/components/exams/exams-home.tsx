@@ -8,6 +8,7 @@ import { formatDateTime } from '@/lib/registry'
 import {
   createExam,
   deleteExam,
+  generatePart,
   listExams,
   listSessions,
   type ExamListRow,
@@ -15,7 +16,8 @@ import {
 } from '@/lib/exams.functions'
 import type { ExamView } from '@/routes/egzaminy'
 
-const MAX_PDF_BYTES = 6 * 1024 * 1024
+// The PDF is sent with every small AI request, so it is kept modest.
+const MAX_PDF_BYTES = 4 * 1024 * 1024
 
 const STATUS_LABELS = { lobby: 'czeka na start', running: 'trwa', finished: 'zakończony' } as const
 
@@ -119,28 +121,82 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
   const [pass, setPass] = useState(60)
   const [busy, setBusy] = useState(false)
 
+  const [progress, setProgress] = useState<string | null>(null)
+
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (file && file.size > MAX_PDF_BYTES) {
-      toast.error('Plik PDF jest za duży (maksymalnie 6 MB).')
+      toast.error('Plik PDF jest za duży (maksymalnie 4 MB).')
+      return
+    }
+    if (nAbcde + nTf + nOpen === 0) {
+      toast.error('Wybierz przynajmniej jedno pytanie.')
       return
     }
     setBusy(true)
+    let examId: number | null = null
     try {
       const pdfBase64 = file ? await readPdf(file) : undefined
-      const result = await createExam({
-        data: { title, topic, pdfBase64, nAbcde, nTf, nOpen, durationMinutes: duration, passPercent: pass },
+      const created = await createExam({
+        data: { title, topic, hasPdf: Boolean(file), durationMinutes: duration, passPercent: pass },
       })
-      if (!result.ok) {
-        toast.error(result.error)
+      if (!created.ok) {
+        toast.error(created.error)
         return
       }
-      toast.success('Egzamin wygenerowany. Sprawdź pytania przed użyciem.')
-      onCreated(result.id)
+      examId = created.id
+
+      // Several small requests (each with its own time limit): the three versions run side by side,
+      // and within a version the closed questions and the rest are separate steps.
+      const steps = [
+        nAbcde > 0 && { nAbcde, nTf: 0, nOpen: 0 },
+        nTf + nOpen > 0 && { nAbcde: 0, nTf, nOpen },
+      ].filter((step): step is { nAbcde: number; nTf: number; nOpen: number } => Boolean(step))
+      const total = steps.length * 3
+      let done = 0
+      let added = 0
+      const errors: string[] = []
+      setProgress(`Generuję pytania… 0/${total}`)
+      const id = created.id
+
+      await Promise.all(
+        (['A', 'B', 'C'] as const).map(async (version) => {
+          for (const step of steps) {
+            let result: Awaited<ReturnType<typeof generatePart>> | null = null
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                result = await generatePart({ data: { examId: id, version, topic, pdfBase64, ...step } })
+              } catch {
+                result = { ok: false, error: 'Błąd połączenia z serwerem.' }
+              }
+              if (result.ok) break
+            }
+            done++
+            setProgress(`Generuję pytania… ${done}/${total}`)
+            if (result?.ok) added += result.added
+            else if (result) errors.push(`wersja ${version}: ${result.error}`)
+          }
+        }),
+      )
+
+      if (added === 0) {
+        await deleteExam({ data: { id } }).catch(() => undefined)
+        examId = null
+        toast.error(errors[0] ?? 'Nie udało się wygenerować pytań.')
+        return
+      }
+      if (errors.length) {
+        toast.warning(`Część pytań nie powstała (${errors[0]}). Uzupełnij je ręcznie w edytorze.`)
+      } else {
+        toast.success('Egzamin wygenerowany. Sprawdź pytania przed użyciem.')
+      }
+      onCreated(id)
     } catch {
+      if (examId !== null) await deleteExam({ data: { id: examId } }).catch(() => undefined)
       toast.error('Nie udało się utworzyć egzaminu (sprawdź połączenie i rozmiar pliku).')
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -167,7 +223,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
           <textarea value={topic} onChange={(e) => setTopic(e.target.value)} rows={4} maxLength={4000} className="mt-1 w-full rounded-md border border-input bg-white px-3 py-2 text-sm" placeholder="np. resuscytacja krążeniowo-oddechowa dorosłych, zasady AED, pozycja boczna ustalona…" />
         </label>
         <label className="block text-sm">
-          Plik PDF z zagadnieniami (opcjonalnie, do 6 MB)
+          Plik PDF z zagadnieniami (opcjonalnie, do 4 MB)
           <input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="mt-1 block text-sm" />
         </label>
         <div className="grid gap-3 sm:grid-cols-5">
@@ -177,7 +233,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
           {number(duration, setDuration, 'Czas (min)', 5, 300)}
           {number(pass, setPass, 'Próg zdania (%)', 1, 100)}
         </div>
-        <Button type="submit" disabled={busy}>{busy ? 'Generuję… (do minuty)' : 'Wygeneruj egzamin'}</Button>
+        <Button type="submit" disabled={busy}>{busy ? (progress ?? 'Tworzę…') : 'Wygeneruj egzamin'}</Button>
       </form>
     </Panel>
   )
