@@ -1,6 +1,5 @@
 /** Server-only helpers of the exam module: the AI call, shuffling and scoring. */
 import { extractText, getDocumentProxy } from 'unpdf'
-import { z } from 'zod'
 
 export type QuestionKind = 'abcde' | 'tf' | 'open'
 
@@ -15,30 +14,43 @@ export type QuestionDraft = {
 export const VERSIONS = ['A', 'B', 'C', 'D', 'E'] as const
 export type ExamVersion = (typeof VERSIONS)[number]
 
-const aiQuestion = z.object({
-  kind: z.enum(['abcde', 'tf', 'open']),
-  prompt: z.string().trim().min(3).max(1500),
-  options: z.array(z.string().trim().min(1).max(500)).optional().default([]),
-  correct: z.union([z.string(), z.number(), z.boolean()]).transform(String),
-})
+/** Lenient reading of one AI question: models differ in how they name kinds and mark the correct answer. */
+function clean(raw: unknown): QuestionDraft | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const prompt = String(r.prompt ?? r.question ?? r.pytanie ?? '').trim().slice(0, 1500)
+  if (prompt.length < 3) return null
+  const kindText = String(r.kind ?? r.type ?? '').toLowerCase()
+  const correctRaw = r.correct ?? r.answer ?? r.correct_answer ?? r.poprawna ?? ''
+  const correct = String(correctRaw).trim()
+  const optionsRaw = Array.isArray(r.options) ? r.options : Array.isArray(r.answers) ? r.answers : []
+  const strip = (text: string) => text.replace(/^\s*[A-Ea-e][).:]\s+/, '').trim().slice(0, 500)
+  const options = optionsRaw.map((o) => strip(String(o))).filter((o) => o.length > 0)
 
-const aiResponse = z.object({ questions: z.array(aiQuestion) })
-
-/** Turns a raw AI question into a valid one, or null when it cannot be used. */
-function clean(raw: z.infer<typeof aiQuestion>): QuestionDraft | null {
-  if (raw.kind === 'abcde') {
-    if (raw.options.length !== 5) return null
-    const index = Number.parseInt(raw.correct, 10)
-    if (!Number.isInteger(index) || index < 0 || index > 4) return null
-    return { kind: 'abcde', prompt: raw.prompt, options: raw.options, correct: String(index), points: 1 }
+  if (/abcde|closed|multiple|mcq|zamkni|wybor|wyboru/.test(kindText) || (!kindText && options.length >= 4)) {
+    if (options.length < 5) return null
+    const five = options.slice(0, 5)
+    let index = -1
+    const letter = /^([A-Ea-e])(?:[).:\s]|$)/.exec(correct)
+    if (/^[0-4]$/.test(correct)) index = Number(correct)
+    else if (letter) index = letter[1].toUpperCase().charCodeAt(0) - 65
+    else {
+      const byText = five.findIndex((o) => o.toLowerCase() === strip(correct).toLowerCase())
+      index = byText
+    }
+    if (index < 0 || index > 4) return null
+    return { kind: 'abcde', prompt, options: five, correct: String(index), points: 1 }
   }
-  if (raw.kind === 'tf') {
-    const value = raw.correct.toLowerCase()
-    if (!['true', 'false', 'prawda', 'fałsz', 'falsz', 'p', 'f'].includes(value)) return null
-    const isTrue = ['true', 'prawda', 'p'].includes(value)
-    return { kind: 'tf', prompt: raw.prompt, options: [], correct: isTrue ? 'true' : 'false', points: 1 }
+  if (/^tf$|true|false|prawda|fa[lł]sz|p\/f/.test(kindText)) {
+    const value = correct.toLowerCase()
+    if (!['true', 'false', 'prawda', 'fałsz', 'falsz', 'p', 'f', 'tak', 'nie'].includes(value)) return null
+    const isTrue = ['true', 'prawda', 'p', 'tak'].includes(value)
+    return { kind: 'tf', prompt, options: [], correct: isTrue ? 'true' : 'false', points: 1 }
   }
-  return { kind: 'open', prompt: raw.prompt, options: [], correct: raw.correct.slice(0, 2000), points: 1 }
+  if (/open|otwart/.test(kindText)) {
+    return { kind: 'open', prompt, options: [], correct: correct.slice(0, 2000), points: 1 }
+  }
+  return null
 }
 
 const SYSTEM = `Jesteś pomocnikiem wykładowcy w fikcyjnej szkole medycznej (gra fabularna). Tworzysz egzaminy po polsku na podstawie podanych zagadnień. Odpowiadasz WYŁĄCZNIE poprawnym JSON-em, bez komentarzy i bez bloków kodu.`
@@ -268,16 +280,21 @@ async function askGroq(prompt: string, key: string): Promise<string> {
 
 function parseQuestions(text: string): QuestionDraft[] {
   const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
-  let questions: QuestionDraft[]
+  let list: unknown[] = []
   try {
-    questions = aiResponse
-      .parse(JSON.parse(json))
-      .questions.map(clean)
-      .filter((q): q is QuestionDraft => q !== null)
+    const parsed = JSON.parse(json) as unknown
+    if (Array.isArray(parsed)) list = parsed
+    else if (parsed && typeof parsed === 'object') {
+      const found = Object.values(parsed as Record<string, unknown>).find(Array.isArray)
+      list = (found as unknown[] | undefined) ?? []
+    }
   } catch {
-    throw new Error('Odpowiedź AI miała nieprawidłowy format.')
+    throw new Error(`Odpowiedź AI nie była poprawnym JSON-em. Początek: ${json.slice(0, 120)}`)
   }
-  if (questions.length === 0) throw new Error('AI nie wygenerowało poprawnych pytań.')
+  const questions = list.map(clean).filter((q): q is QuestionDraft => q !== null)
+  if (questions.length === 0) {
+    throw new Error(`AI nie wygenerowało pytań w oczekiwanym formacie (otrzymano ${list.length}). Początek: ${json.slice(0, 160)}`)
+  }
   return questions
 }
 
@@ -303,15 +320,15 @@ export async function generateQuestionsWithAi(input: GenerateInput): Promise<Que
   if (geminiKey || !groqKey) attempts.push(gemini)
   if (!groqFirst && groqUsable) attempts.push(groq)
 
-  let firstError: Error | null = null
+  const errors: string[] = []
   for (const attempt of attempts) {
     try {
       return parseQuestions(await attempt())
     } catch (error) {
-      firstError ??= error instanceof Error ? error : new Error('Nie udało się wygenerować pytań.')
+      errors.push(error instanceof Error ? error.message : 'Nie udało się wygenerować pytań.')
     }
   }
-  throw firstError ?? new Error('Nie udało się wygenerować pytań.')
+  throw new Error(errors.join(' | ') || 'Nie udało się wygenerować pytań.')
 }
 
 // ---------------------------------------------------------------------------
