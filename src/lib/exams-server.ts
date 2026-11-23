@@ -111,23 +111,7 @@ export type GenerateInput = {
   nOpen: number
 }
 
-/**
- * Asks Gemini for one batch of questions of one version. The exam is built from several such small
- * requests (the browser sends them one after another), so every request gets its own time limit.
- * Throws an Error with a Polish message.
- */
-export async function generateQuestionsWithAi(input: GenerateInput): Promise<QuestionDraft[]> {
-  const key = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
-  if (!key) {
-    // Names only (never values) of everything the site can see, to find where the secret went.
-    const names = Object.keys(process.env).sort()
-    throw new Error(
-      `Strona nie widzi klucza GEMINI_API_KEY. Zmienne widoczne dla strony: ${names.length ? names.join(', ') : 'brak żadnej'}.`,
-    )
-  }
-  const model = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim()
-  const deadline = Date.now() + AI_TIMEOUT_MS
-
+function buildPrompt(input: GenerateInput): string {
   const wanted = [
     input.nAbcde > 0 &&
       `- ${input.nAbcde} pytań zamkniętych wielokrotnego wyboru (kind "abcde"): "options" to dokładnie 5 odpowiedzi (bez liter A-E na początku), a "correct" to numer poprawnej odpowiedzi 0-4 (dokładnie jedna poprawna),`,
@@ -151,6 +135,21 @@ Format odpowiedzi:
 
 Materiał / zagadnienia od wykładowcy:
 ${input.topic.trim() || '(patrz załączony plik PDF)'}`
+  return prompt
+}
+
+/** Gemini: returns the raw text answer. Throws an Error with a Polish message. */
+async function askGemini(input: GenerateInput, prompt: string): Promise<string> {
+  const key = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
+  if (!key) {
+    // Names only (never values) of everything the site can see, to find where the secret went.
+    const names = Object.keys(process.env).sort()
+    throw new Error(
+      `Strona nie widzi klucza GEMINI_API_KEY. Zmienne widoczne dla strony: ${names.length ? names.join(', ') : 'brak żadnej'}.`,
+    )
+  }
+  const model = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim()
+  const deadline = Date.now() + AI_TIMEOUT_MS
 
   const call = (modelName: string, lowThinking = true) => {
     const parts: unknown[] = [{ text: prompt }]
@@ -220,12 +219,51 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
     )
   }
 
-  let text: string
   try {
-    text = await readStream(response)
+    return await readStream(response)
   } catch {
     throw new Error('AI nie odpowiedziało na czas. Spróbuj ponownie.')
   }
+}
+
+/** Groq (OpenAI-compatible API). Takes text only, so a PDF cannot be sent to it. */
+async function askGroq(prompt: string, key: string): Promise<string> {
+  const model = (process.env.GROQ_MODEL || 'llama-3.3-70b-versatile').trim()
+  let response: Response
+  try {
+    response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      body: JSON.stringify({
+        model,
+        temperature: 0.9,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    })
+  } catch {
+    throw new Error('Groq nie odpowiedział na czas. Spróbuj ponownie.')
+  }
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const body = (await response.json()) as { error?: { message?: string } }
+      detail = body.error?.message ? ` Groq: ${body.error.message.slice(0, 220)}` : ''
+    } catch {
+      detail = ''
+    }
+    if (response.status === 429) throw new Error(`Limit zapytań do AI (429) w Groq.${detail}`)
+    throw new Error(`Groq zwrócił błąd (${response.status}) dla modelu „${model}”. Sprawdź GROQ_API_KEY i GROQ_MODEL.${detail}`)
+  }
+  const body = (await response.json()) as { choices?: { message?: { content?: string } }[] }
+  return body.choices?.[0]?.message?.content ?? ''
+}
+
+function parseQuestions(text: string): QuestionDraft[] {
   const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
   let questions: QuestionDraft[]
   try {
@@ -238,6 +276,42 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
   }
   if (questions.length === 0) throw new Error('AI nie wygenerowało poprawnych pytań.')
   return questions
+}
+
+/**
+ * Generates one batch of questions of one version. The exam is built from several such small
+ * requests (the browser sends them one after another), so every request gets its own time limit.
+ * Providers: Gemini (reads PDFs) and Groq (text only). Default order is Gemini, then Groq when Gemini
+ * fails or is out of quota; AI_PROVIDER=groq puts Groq first. Throws an Error with a Polish message.
+ */
+export async function generateQuestionsWithAi(input: GenerateInput): Promise<QuestionDraft[]> {
+  const prompt = buildPrompt(input)
+  const groqKey = (process.env.GROQ_API_KEY ?? '').trim()
+  const geminiKey = (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? '').trim()
+  const groqFirst = (process.env.AI_PROVIDER ?? '').trim().toLowerCase() === 'groq'
+
+  type Attempt = () => Promise<string>
+  const attempts: Attempt[] = []
+  const gemini: Attempt = () => askGemini(input, prompt)
+  const groq: Attempt = () => askGroq(prompt, groqKey)
+  // Groq cannot read a PDF, so with an attached file Gemini is the only choice.
+  const groqUsable = Boolean(groqKey) && !input.pdfBase64
+  if (groqFirst && groqUsable) attempts.push(groq)
+  if (geminiKey || !groqKey) attempts.push(gemini)
+  if (!groqFirst && groqUsable) attempts.push(groq)
+
+  let firstError: Error | null = null
+  for (const attempt of attempts) {
+    try {
+      return parseQuestions(await attempt())
+    } catch (error) {
+      firstError ??= error instanceof Error ? error : new Error('Nie udało się wygenerować pytań.')
+    }
+  }
+  if (groqKey && input.pdfBase64 && !geminiKey) {
+    throw new Error('Groq nie czyta plików PDF. Wklej treść zagadnień w pole tekstowe albo dodaj klucz Gemini.')
+  }
+  throw firstError ?? new Error('Nie udało się wygenerować pytań.')
 }
 
 // ---------------------------------------------------------------------------
