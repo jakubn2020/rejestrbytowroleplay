@@ -117,6 +117,7 @@ Strona `/egzaminy` (przycisk „Egzaminy (beta)” w panelu właściciela). Wyk�
 
 - Role: `egzaminator` i `moderator-egzaminatorow`. Konta tworzy administrator (panel → „Egzaminatorzy”) albo moderator (tylko egzaminatorów). Hasło początkowe trzeba zmienić przy pierwszym logowaniu. Logują się tym samym formularzem co reszta obsługi (`/admin`) i widzą własny, mniejszy panel z samouczkiem.
 - Egzaminator składa wnioski o wpis (jak kierownictwo), ale z limitem okna czasu. Domyślnie 2 wnioski na 20 minut i do 10 oczekujących naraz.
+- Moderator może też sam składać wnioski o wpis, na tych samych zasadach i z tym samym limitem co egzaminator.
 - Moderator dodaje egzaminatorów, zawiesza ich (1 godz. – limit ustawia właściciel) i składa wnioski o usunięcie konta. Wnioski rozpatruje administrator.
 - Wszystkie limity ustawia właściciel: Centrum bezpieczeństwa → „Limity egzaminatorów i moderatorów”.
 - Wymaga migracji `20261124100000_examiner_roles` (tabela `account_removal_requests`).

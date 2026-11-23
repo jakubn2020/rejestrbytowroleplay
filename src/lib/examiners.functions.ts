@@ -216,14 +216,14 @@ export const submitExaminerRequest = createServerFn({ method: 'POST' })
 
     await logEvent({
       actor: context.identity,
-      actorRole: ROLE_EXAMINER,
+      actorRole: context.user.roles.includes(ROLE_EXAMINER) ? ROLE_EXAMINER : ROLE_EXAM_MOD,
       action: 'request_create',
       target: `${person.firstName} ${person.lastName} (PESEL ${person.pesel})`,
-      details: `Zawód: ${person.profession} (egzaminator)`,
+      details: `Zawód: ${person.profession} (${context.user.roles.includes(ROLE_EXAMINER) ? 'egzaminator' : 'moderator egzaminatorów'})`,
     })
     await notifyAdmins(
       'Nowy wniosek o wpis do rejestru',
-      `Egzaminator ${context.identity} złożył(a) wniosek o wpis: ${person.firstName} ${person.lastName} (${person.profession}). Sprawdź zrzut ekranu i zaakceptuj lub odrzuć wniosek.`,
+      `${context.user.roles.includes(ROLE_EXAMINER) ? 'Egzaminator' : 'Moderator egzaminatorów'} ${context.identity} złożył(a) wniosek o wpis: ${person.firstName} ${person.lastName} (${person.profession}). Sprawdź zrzut ekranu i zaakceptuj lub odrzuć wniosek.`,
     )
     return { ok: true }
   })

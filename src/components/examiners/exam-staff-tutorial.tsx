@@ -61,7 +61,11 @@ const MODERATOR_STEPS: Step[] = [
     text: 'Właściciel ustala, ile kont możesz dodać na dobę, ile wniosków o usunięcie złożyć i ile kont egzaminatorów może istnieć. Aktualne zużycie widać na górze panelu.',
   },
   {
-    title: '5. Przegląd aktywności',
+    title: '5. Własne wnioski o wpis',
+    text: 'Pod listą egzaminatorów możesz sam składać wnioski o wpis do rejestru. Obowiązują Cię te same zasady co egzaminatorów, w tym limit wniosków w oknie czasu ustalony przez właściciela.',
+  },
+  {
+    title: '6. Przegląd aktywności',
     text: 'Przy każdym egzaminatorze widać ostatnie logowanie oraz liczbę wniosków z ostatnich 7 dni i przyjętych łącznie. Pomaga to wyłapać konta nieużywane albo nadużywające limitów.',
   },
 ]

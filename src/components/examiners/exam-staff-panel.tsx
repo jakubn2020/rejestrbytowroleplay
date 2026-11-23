@@ -49,7 +49,12 @@ export function ExamStaffPanel({
       <ExamStaffTutorial kind={kind} email={user.email} open={tutorialOpen} onOpenChange={setTutorialOpen} />
       <ChangePasswordDialog open={passwordOpen} onClose={() => setPasswordOpen(false)} />
       {isMod && <ModeratorView />}
-      {isExaminer && <ExaminerView email={user.email} />}
+      {isMod && (
+        <h2 className="pt-2 font-[family-name:var(--font-heading)] text-xl font-bold text-[var(--registry-navy)]">
+          Wnioski o wpis do rejestru (na zasadach egzaminatora)
+        </h2>
+      )}
+      {(isMod || isExaminer) && <ExaminerView email={user.email} />}
       {!isMod && !isExaminer && <p className="text-muted-foreground">To konto nie ma przypisanej roli w panelu.</p>}
     </div>
   )

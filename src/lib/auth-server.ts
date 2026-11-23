@@ -64,11 +64,13 @@ export const requirePanelUser = createMiddleware({ type: 'function' }).server(
   },
 )
 
-/** An examiner account (files requests for entries within the owner's limits). */
+/** An examiner or a moderator of examiners (both file requests for entries within the owner's limits). */
 export const requireExaminer = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
     const user = await getSessionUser()
-    if (!user?.roles.includes(ROLE_EXAMINER)) throw new Error('Brak uprawnień egzaminatora')
+    if (!user || !(user.roles.includes(ROLE_EXAMINER) || user.roles.includes(ROLE_EXAM_MOD))) {
+      throw new Error('Brak uprawnień egzaminatora')
+    }
     if (user.mustChangePassword) throw new Error(PASSWORD_CHANGE_REQUIRED)
     const identity = user.email.toLowerCase()
     if (!(await mfaSatisfied(identity))) throw new Error(MFA_REQUIRED)
