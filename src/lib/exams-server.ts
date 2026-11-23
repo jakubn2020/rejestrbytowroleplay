@@ -317,16 +317,23 @@ export async function generateQuestionsWithAi(input: GenerateInput): Promise<Que
   const attempts: Attempt[] = []
   const gemini: Attempt = () => askGemini(input, prompt)
   const groq: Attempt = () => {
-    if (!groqKey) throw new Error('Brak klucza GROQ_API_KEY (strona go nie widzi).')
+    if (!groqKey) {
+      const names = Object.keys(process.env).sort()
+      throw new Error(
+        `Strona nie widzi klucza GROQ_API_KEY, więc Groq nie jest używany. Zmienne widoczne dla strony: ${names.length ? names.join(', ') : 'brak żadnej'}.`,
+      )
+    }
     return askGroq(prompt, groqKey)
   }
   const choice = input.provider ?? 'auto'
   if (choice === 'groq') attempts.push(groq)
   else if (choice === 'gemini') attempts.push(gemini)
   else {
-    if (groqFirst && groqKey) attempts.push(groq)
-    if (geminiKey || !groqKey) attempts.push(gemini)
-    if (!groqFirst && groqKey) attempts.push(groq)
+    // Without a visible Groq key the first attempt fails with that explanation, then Gemini runs.
+    if (groqFirst) attempts.push(groq)
+    if (geminiKey) attempts.push(gemini)
+    if (!groqFirst) attempts.push(groq)
+    if (!attempts.length) attempts.push(gemini)
   }
 
   const errors: string[] = []
