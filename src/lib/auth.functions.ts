@@ -16,17 +16,30 @@ import {
 import { ipBanned, panelIpAllowed } from './ip-policy-server'
 import { loginBlocked, registerLoginFailure } from './login-guard-server'
 import { isWeakPassword } from './password-strength'
-import { SEC_KEYS, readNumberSetting } from './site-settings-server'
+import { SEC_KEYS, readNumberSetting, readSetting, writeSetting } from './site-settings-server'
+import { userKey } from './examiners'
 import { hashPassword, verifyPassword } from './password'
-import { logEvent } from './security-server'
+import { logEvent, notifyAdmins } from './security-server'
 import { ROLE_ADMIN, ROLE_MANAGEMENT, hasPanelRole } from './registry'
 
 /** Hash of a throwaway password, checked when the e-mail is unknown so timing does not reveal it. */
 let dummyHash: Promise<string> | null = null
 
+function parseJson(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null
+  try {
+    const value: unknown = JSON.parse(raw)
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
 export type LoginResult =
   | { ok: true; user: AuthUser }
   | { ok: false; reason: 'blocked' | 'invalid' | 'locked' }
+  /** The password was right but a moderator suspended the account: the reason may be shown and an appeal sent. */
+  | { ok: false; reason: 'suspended'; until: string; why: string | null; appealSent: boolean }
 
 export const loginUser = createServerFn({ method: 'POST' })
   .validator(
@@ -70,7 +83,16 @@ export const loginUser = createServerFn({ method: 'POST' })
         return { ok: false, reason: 'locked' }
       }
       if (row.locked) return { ok: false, reason: 'locked' }
-      if (row.frozenUntil && row.frozenUntil.getTime() > Date.now()) return { ok: false, reason: 'locked' }
+      if (row.frozenUntil && row.frozenUntil.getTime() > Date.now()) {
+        const suspension = parseJson(await readSetting(userKey.suspension(row.id)))
+        return {
+          ok: false,
+          reason: 'suspended',
+          until: row.frozenUntil.toISOString(),
+          why: typeof suspension?.reason === 'string' && suspension.reason ? suspension.reason : null,
+          appealSent: (await readSetting(userKey.appeal(row.id))) !== null,
+        }
+      }
       if ((await readNumberSetting(SEC_KEYS.lockdown, 0)) === 1) return { ok: false, reason: 'locked' }
       if (row.roles.includes(ROLE_ADMIN) && !(await panelIpAllowed())) {
         return { ok: false, reason: 'blocked' }
@@ -143,5 +165,46 @@ export const changeOwnPassword = createServerFn({ method: 'POST' })
       target: user.email,
       details: 'Hasło zmienione przez właściciela konta',
     })
+    return { ok: true }
+  })
+
+export type AppealResult = { ok: true } | { ok: false; error: string }
+
+/** A suspended account (right password required) sends one appeal that the moderators and admins see. */
+export const appealSuspension = createServerFn({ method: 'POST' })
+  .validator(
+    z.object({
+      email: z.string().trim().toLowerCase().max(200),
+      password: z.string().min(1).max(200),
+      message: z.string().trim().max(500).optional(),
+    }),
+  )
+  .handler(async ({ data }): Promise<AppealResult> => {
+    if ((await loginBlocked()) || (await ipBanned())) {
+      return { ok: false, error: 'Wysyłanie jest teraz niedostępne. Spróbuj później.' }
+    }
+    const [row] = await db.select().from(users).where(eq(users.email, data.email)).limit(1)
+    if (!row || !(await verifyPassword(data.password, row.passwordHash))) {
+      await registerLoginFailure(data.email)
+      return { ok: false, error: 'Nieprawidłowy e-mail lub hasło.' }
+    }
+    if (!row.frozenUntil || row.frozenUntil.getTime() <= Date.now()) {
+      return { ok: false, error: 'To konto nie jest zawieszone.' }
+    }
+    if ((await readSetting(userKey.appeal(row.id))) !== null) {
+      return { ok: false, error: 'Odwołanie zostało już wysłane. Poczekaj na odpowiedź moderatora.' }
+    }
+    await writeSetting(userKey.appeal(row.id), JSON.stringify({ at: new Date().toISOString(), message: data.message ?? '' }))
+    await logEvent({
+      actor: row.email,
+      actorRole: row.roles[0] ?? 'brak',
+      action: 'examiner_appeal',
+      target: row.email,
+      details: data.message || 'Odwołanie od zawieszenia',
+    })
+    await notifyAdmins(
+      'Odwołanie od zawieszenia konta',
+      `${row.email} odwołuje się od zawieszenia konta.${data.message ? ` Wiadomość: ${data.message}` : ''}`,
+    )
     return { ok: true }
   })

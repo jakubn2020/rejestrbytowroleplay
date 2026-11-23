@@ -3,6 +3,7 @@ import { PauseCircle, PlayCircle, Trash2, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Panel } from '@/components/admin/panel'
+import { PasswordStrengthMeter } from '@/components/password-strength-meter'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -80,9 +81,14 @@ export function ModeratorView() {
   }
 
   async function suspend(account: ExamStaffAccount, hours: number) {
-    if (hours > 0 && !confirm(`Zawiesić konto ${account.email} na ${hours} godz.? Zostanie wylogowane.`)) return
+    let reason: string | undefined
+    if (hours > 0) {
+      const answer = prompt(`Zawiesić konto ${account.email} na ${hours} godz.? Konto zostanie wylogowane.\nPowód (zobaczy go zawieszona osoba):`)
+      if (answer === null) return
+      reason = answer.trim() || undefined
+    }
     try {
-      const result = await suspendExaminer({ data: { id: account.id, hours } })
+      const result = await suspendExaminer({ data: { id: account.id, hours, reason } })
       if (!result.ok) {
         toast.error(result.error)
         return
@@ -135,6 +141,7 @@ export function ModeratorView() {
               <Input id="mod-password" required minLength={8} maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
               <Button type="button" variant="outline" onClick={() => setPassword(randomPassword())}>Losuj</Button>
             </div>
+            <PasswordStrengthMeter password={password} email={email} />
           </div>
           <Button type="submit" disabled={busy}>{busy ? 'Dodawanie…' : 'Dodaj konto'}</Button>
         </form>
@@ -156,9 +163,12 @@ export function ModeratorView() {
                     <p className="font-medium">
                       {a.email}{' '}
                       {a.suspendedUntil && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Zawieszony do {formatDateTime(a.suspendedUntil)}</span>}{' '}
+                      {a.appeal && <span className="rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Odwołanie od zawieszenia</span>}{' '}
                       {a.pendingRemoval && <span className="rounded bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-900">Wniosek o usunięcie</span>}
                     </p>
                     <p className="text-xs text-muted-foreground">
+                      {a.suspendReason ? `Powód zawieszenia: ${a.suspendReason} · ` : ''}
+                      {a.appeal ? `Odwołanie ${a.appeal.at ? formatDateTime(a.appeal.at) : ''}${a.appeal.message ? `: ${a.appeal.message}` : ''} · ` : ''}
                       Dodano {formatDateTime(a.createdAt)}
                       {a.createdBy ? ` (${a.createdBy})` : ''} · ostatnie logowanie {a.lastLoginAt ? formatDateTime(a.lastLoginAt) : 'brak'} · wnioski 7 dni: {a.requestsWeek} · przyjęte: {a.requestsApproved}
                     </p>

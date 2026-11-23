@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { Panel } from '@/components/admin/panel'
 import { randomPassword } from '@/components/examiners/moderator-view'
+import { PasswordStrengthMeter } from '@/components/password-strength-meter'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,12 +13,65 @@ import {
   adminExamStaff,
   decideRemoval,
   deleteExamStaff,
+  setExaminerOverride,
   type AdminExamStaff,
+  type ExamStaffAccount,
 } from '@/lib/examiners.functions'
 import { formatDateTime } from '@/lib/registry'
 
 /** Admin: examiner and moderator accounts and the moderators' requests to remove an account. */
-export function ExamStaffAdmin({ onChanged }: { onChanged?: () => void }) {
+const OVERRIDE_FIELDS = [
+  { key: 'requestsCount', label: 'Wnioski w oknie', min: 1, max: 50 },
+  { key: 'requestsWindowMinutes', label: 'Okno (min)', min: 1, max: 1440 },
+  { key: 'pendingMax', label: 'Oczekujące naraz', min: 1, max: 200 },
+] as const
+
+/** Owner only: an exception to the general limits for one person. */
+function OverrideEditor({ account, onSaved }: { account: ExamStaffAccount; onSaved: () => void }) {
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(OVERRIDE_FIELDS.map((f) => [f.key, String(account.override?.[f.key] ?? '')])),
+  )
+  async function save(clear: boolean) {
+    const override = clear
+      ? null
+      : Object.fromEntries(OVERRIDE_FIELDS.filter((f) => values[f.key]).map((f) => [f.key, Number(values[f.key])]))
+    try {
+      const result = await setExaminerOverride({ data: { id: account.id, override } })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(clear ? 'Wyjątek usunięty, obowiązują limity ogólne.' : 'Limity dla tej osoby zapisane.')
+      onSaved()
+    } catch {
+      toast.error('Nie udało się zapisać limitów.')
+    }
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2 rounded-md border bg-muted/30 p-2">
+      {OVERRIDE_FIELDS.map((f) => (
+        <label key={f.key} className="text-xs">
+          {f.label}
+          <input
+            type="number"
+            min={f.min}
+            max={f.max}
+            placeholder="ogólny"
+            value={values[f.key]}
+            onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+            className="mt-1 block h-8 w-24 rounded-md border border-input bg-white px-2 text-sm"
+          />
+        </label>
+      ))}
+      <Button size="sm" onClick={() => void save(false)}>Zapisz</Button>
+      <Button size="sm" variant="outline" onClick={() => void save(true)}>Przywróć ogólne</Button>
+      <p className="w-full text-xs text-muted-foreground">Puste pole = obowiązuje limit ogólny.</p>
+    </div>
+  )
+}
+
+export function ExamStaffAdmin({ isOwner = false, onChanged }: { isOwner?: boolean; onChanged?: () => void }) {
+  const [limitsFor, setLimitsFor] = useState<string | null>(null)
   const [data, setData] = useState<AdminExamStaff | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -145,6 +199,7 @@ export function ExamStaffAdmin({ onChanged }: { onChanged?: () => void }) {
               <Input id="adm-ex-password" required minLength={8} maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
               <Button type="button" variant="outline" onClick={() => setPassword(randomPassword())}>Losuj</Button>
             </div>
+            <PasswordStrengthMeter password={password} email={email} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="adm-ex-role">Rola</Label>
@@ -169,14 +224,27 @@ export function ExamStaffAdmin({ onChanged }: { onChanged?: () => void }) {
                   <p className="font-medium">
                     {a.email}{' '}
                     <span className="rounded bg-muted px-2 py-0.5 text-xs">{a.role === 'moderator' ? 'moderator' : 'egzaminator'}</span>{' '}
-                    {a.suspendedUntil && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Zawieszony do {formatDateTime(a.suspendedUntil)}</span>}
+                    {a.suspendedUntil && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Zawieszony do {formatDateTime(a.suspendedUntil)}</span>}{' '}
+                    {a.appeal && <span className="rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Odwołanie od zawieszenia</span>}{' '}
+                    {a.override && <span className="rounded bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-900">Własne limity</span>}
                   </p>
+                  {a.suspendReason && <p className="text-xs text-muted-foreground">Powód zawieszenia: {a.suspendReason}</p>}
                   <p className="text-xs text-muted-foreground">
                     Dodano {formatDateTime(a.createdAt)}{a.createdBy ? ` (${a.createdBy})` : ''} · logowanie {a.lastLoginAt ? formatDateTime(a.lastLoginAt) : 'brak'}
                     {a.role === 'examiner' ? ` · wnioski 7 dni: ${a.requestsWeek}, przyjęte: ${a.requestsApproved}` : ''}
                   </p>
                 </div>
-                <Button size="sm" variant="ghost" onClick={() => void remove(a.id, a.email)}><Trash2 className="size-4" /> Usuń</Button>
+                <div className="flex gap-2">
+                  {isOwner && (
+                    <Button size="sm" variant="outline" onClick={() => setLimitsFor(limitsFor === a.id ? null : a.id)}>Limity</Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => void remove(a.id, a.email)}><Trash2 className="size-4" /> Usuń</Button>
+                </div>
+                {isOwner && limitsFor === a.id && (
+                  <div className="w-full">
+                    <OverrideEditor account={a} onSaved={() => void reload()} />
+                  </div>
+                )}
               </li>
             ))}
           </ul>

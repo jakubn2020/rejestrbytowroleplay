@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordStrengthMeter } from '@/components/password-strength-meter'
 import { changeOwnPassword } from '@/lib/auth.functions'
 import { setAdminPassword, setManagementPassword } from '@/lib/registry.functions'
 
@@ -25,9 +26,13 @@ export function ChangePasswordDialog({
 }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState('')
 
   useEffect(() => {
-    if (open) setError(null)
+    if (open) {
+      setError(null)
+      setNewPassword('')
+    }
   }, [open])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -93,7 +98,9 @@ export function ChangePasswordDialog({
               autoComplete="new-password"
               minLength={8}
               required
+              onChange={(e) => setNewPassword(e.target.value)}
             />
+            <PasswordStrengthMeter password={newPassword} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="own-password-confirm">Powtórz hasło</Label>

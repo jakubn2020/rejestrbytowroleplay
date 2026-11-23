@@ -1,9 +1,9 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, like, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
 import { db } from '../../db'
-import { accountRemovalRequests, authSessions, entryRequests, mfaSessions, users } from '../../db/schema'
+import { accountRemovalRequests, authSessions, entryRequests, mfaSessions, settings, users } from '../../db/schema'
 import { requireAdmin, requireExamMod, requireExaminer, requireSuperAdmin } from './auth-server'
 import { hashPassword } from './password'
 import { isWeakPassword } from './password-strength'
@@ -18,12 +18,15 @@ import {
 } from './registry'
 import { practitionerInput, proofSchema } from './schemas'
 import { logEvent, notifyAdmins, notifyUser } from './security-server'
-import { FLAG_KEYS, readFlag, readNumberSetting, writeSetting } from './site-settings-server'
+import { FLAG_KEYS, clearSetting, readFlag, readNumberSetting, readSetting, writeSetting } from './site-settings-server'
 import {
   EXAMINER_LIMIT_DEFAULTS,
   EXAMINER_LIMIT_FIELDS,
+  OVERRIDE_KEYS,
   examinerLimitKey,
+  userKey,
   type ExaminerLimits,
+  type ExaminerOverride,
   type ExaminerRequestStats,
 } from './examiners'
 
@@ -31,14 +34,32 @@ import {
 // Limits (the owner decides all of them)
 // ---------------------------------------------------------------------------
 
-async function readLimits(): Promise<ExaminerLimits> {
+function parseOverride(raw: string | null): ExaminerOverride {
+  if (!raw) return {}
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>
+    const result: ExaminerOverride = {}
+    for (const key of OVERRIDE_KEYS) {
+      const n = value[key]
+      if (typeof n === 'number' && Number.isFinite(n)) result[key] = n
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
+/** The general limits; with `userId` the owner's exceptions for that person are applied on top. */
+async function readLimits(userId?: string): Promise<ExaminerLimits> {
   const entries = await Promise.all(
     EXAMINER_LIMIT_FIELDS.map(
       async (field) =>
         [field.key, await readNumberSetting(examinerLimitKey(field.key), EXAMINER_LIMIT_DEFAULTS[field.key])] as const,
     ),
   )
-  return Object.fromEntries(entries) as ExaminerLimits
+  const general = Object.fromEntries(entries) as ExaminerLimits
+  if (!userId) return general
+  return { ...general, ...parseOverride(await readSetting(userKey.override(userId))) }
 }
 
 /** Owner only: the current limits. */
@@ -72,6 +93,39 @@ export const saveExaminerLimits = createServerFn({ method: 'POST' })
       details: EXAMINER_LIMIT_FIELDS.map((f) => `${f.key}=${data[f.key]}`).join(', '),
     })
     return { ok: true as const }
+  })
+
+/** Owner only: limits for one person (an exception to the general limits); `null` removes the exception. */
+export const setExaminerOverride = createServerFn({ method: 'POST' })
+  .middleware([requireSuperAdmin])
+  .validator(
+    z.object({
+      id: z.string().min(1).max(100),
+      override: z
+        .object({
+          requestsCount: z.number().int().min(1).max(50).optional(),
+          requestsWindowMinutes: z.number().int().min(1).max(1440).optional(),
+          pendingMax: z.number().int().min(1).max(200).optional(),
+        })
+        .nullable(),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
+    if (!row || !(row.roles.includes(ROLE_EXAMINER) || row.roles.includes(ROLE_EXAM_MOD))) {
+      return { ok: false, error: 'To nie jest konto egzaminatora ani moderatora.' }
+    }
+    const clean = data.override ? Object.fromEntries(Object.entries(data.override).filter(([, v]) => v !== undefined)) : null
+    if (!clean || Object.keys(clean).length === 0) await clearSetting(userKey.override(row.id))
+    else await writeSetting(userKey.override(row.id), JSON.stringify(clean))
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'examiner_limits',
+      target: row.email,
+      details: clean && Object.keys(clean).length ? `Wyjątek: ${JSON.stringify(clean)}` : 'Wyjątek usunięty (obowiązują limity ogólne)',
+    })
+    return { ok: true }
   })
 
 // ---------------------------------------------------------------------------
@@ -117,7 +171,7 @@ async function windowUsage(identity: string, minutes: number, count: number) {
 export const examinerOverview = createServerFn({ method: 'GET' })
   .middleware([requireExaminer])
   .handler(async ({ context }): Promise<ExaminerOverview> => {
-    const limits = await readLimits()
+    const limits = await readLimits(context.user.id)
     const usage = await windowUsage(context.identity, limits.requestsWindowMinutes, limits.requestsCount)
     const mine = await db
       .select({ status: entryRequests.status, createdAt: entryRequests.createdAt })
@@ -160,7 +214,7 @@ export const submitExaminerRequest = createServerFn({ method: 'POST' })
     if (!(await readFlag(FLAG_KEYS.requests))) {
       return { ok: false, error: 'Składanie wniosków jest chwilowo wyłączone przez właściciela.' }
     }
-    const limits = await readLimits()
+    const limits = await readLimits(context.user.id)
     const wait = (seconds: number): ExaminerSubmitResult => ({
       ok: false,
       secondsLeft: seconds,
@@ -284,6 +338,12 @@ export type ExamStaffAccount = {
   requestsWeek: number
   requestsApproved: number
   pendingRemoval: boolean
+  /** Why the account was suspended (shown to the person at sign-in). */
+  suspendReason: string | null
+  /** An appeal from the suspended person, if any. */
+  appeal: { at: string; message: string } | null
+  /** The owner's exception to the general limits for this person. */
+  override: ExaminerOverride | null
 }
 
 /** Accounts that have an examiner role and no admin / kierownictwo role. */
@@ -295,6 +355,30 @@ async function examStaffRows(roles: string[]) {
       !row.roles.includes(ROLE_ADMIN) &&
       !row.roles.includes(ROLE_MANAGEMENT),
   )
+}
+
+function readReason(raw: string | null): string | null {
+  try {
+    const value = raw ? (JSON.parse(raw) as { reason?: unknown }) : null
+    return typeof value?.reason === 'string' && value.reason ? value.reason : null
+  } catch {
+    return null
+  }
+}
+
+function readAppeal(raw: string | null): { at: string; message: string } | null {
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as { at?: unknown; message?: unknown }
+    return { at: typeof value.at === 'string' ? value.at : '', message: typeof value.message === 'string' ? value.message : '' }
+  } catch {
+    return { at: '', message: '' }
+  }
+}
+
+function readOverride(raw: string | null): ExaminerOverride | null {
+  const value = parseOverride(raw)
+  return Object.keys(value).length ? value : null
 }
 
 async function toAccounts(rows: Awaited<ReturnType<typeof examStaffRows>>): Promise<ExamStaffAccount[]> {
@@ -309,6 +393,11 @@ async function toAccounts(rows: Awaited<ReturnType<typeof examStaffRows>>): Prom
     .from(accountRemovalRequests)
     .where(eq(accountRemovalRequests.status, 'pending'))
   const pendingRemoval = new Set(removals.map((r) => r.target.toLowerCase()))
+  const extras = await db
+    .select()
+    .from(settings)
+    .where(or(like(settings.key, 'susp\\_%'), like(settings.key, 'appeal\\_%'), like(settings.key, 'exlim\\_user\\_%')))
+  const extra = (key: string) => extras.find((e) => e.key === key)?.value ?? null
   const weekAgo = Date.now() - 7 * 86_400_000
   const now = Date.now()
   return rows.map((row) => {
@@ -326,6 +415,9 @@ async function toAccounts(rows: Awaited<ReturnType<typeof examStaffRows>>): Prom
       requestsWeek: mine.filter((r) => r.createdAt.getTime() > weekAgo).length,
       requestsApproved: mine.filter((r) => r.status === 'approved').length,
       pendingRemoval: pendingRemoval.has(row.email.toLowerCase()),
+      suspendReason: until ? readReason(extra(userKey.suspension(row.id))) : null,
+      appeal: until ? readAppeal(extra(userKey.appeal(row.id))) : null,
+      override: readOverride(extra(userKey.override(row.id))),
     }
   })
 }
@@ -474,7 +566,13 @@ async function examinerTarget(id: string) {
 /** Moderator: suspends an examiner for a number of hours (0 lifts the suspension). */
 export const suspendExaminer = createServerFn({ method: 'POST' })
   .middleware([requireExamMod])
-  .validator(z.object({ id: idSchema.shape.id, hours: z.number().int().min(0).max(720) }))
+  .validator(
+    z.object({
+      id: idSchema.shape.id,
+      hours: z.number().int().min(0).max(720),
+      reason: z.string().trim().max(300).optional(),
+    }),
+  )
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const limits = await readLimits()
     if (data.hours > limits.suspendMaxHours) {
@@ -484,7 +582,14 @@ export const suspendExaminer = createServerFn({ method: 'POST' })
     if (!target) return { ok: false, error: 'To konto nie jest kontem egzaminatora.' }
     if (data.hours === 0) {
       await db.update(users).set({ frozenUntil: null }).where(eq(users.id, target.id))
+      await clearSetting(userKey.suspension(target.id))
+      await clearSetting(userKey.appeal(target.id))
     } else {
+      await writeSetting(
+        userKey.suspension(target.id),
+        JSON.stringify({ reason: data.reason ?? '', by: context.identity, at: new Date().toISOString() }),
+      )
+      await clearSetting(userKey.appeal(target.id))
       await db
         .update(users)
         .set({ frozenUntil: sql`now() + (${data.hours} * interval '1 hour')` })
@@ -496,14 +601,14 @@ export const suspendExaminer = createServerFn({ method: 'POST' })
       actorRole: ROLE_EXAM_MOD,
       action: 'examiner_suspend',
       target: target.email,
-      details: data.hours === 0 ? 'Zawieszenie zdjęte' : `Zawieszono na ${data.hours} godz.`,
+      details: data.hours === 0 ? 'Zawieszenie zdjęte' : `Zawieszono na ${data.hours} godz.${data.reason ? `, powód: ${data.reason}` : ''}`,
     })
     await notifyUser(
       target.email,
       data.hours === 0 ? 'Konto odwieszone' : 'Konto zawieszone',
       data.hours === 0
         ? 'Zawieszenie Twojego konta egzaminatora zostało zdjęte.'
-        : `Twoje konto egzaminatora zostało zawieszone na ${data.hours} godz. przez moderatora.`,
+        : `Twoje konto egzaminatora zostało zawieszone na ${data.hours} godz. przez moderatora.${data.reason ? ` Powód: ${data.reason}` : ''}`,
     )
     return { ok: true }
   })

@@ -121,3 +121,6 @@ Strona `/egzaminy` (przycisk „Egzaminy (beta)” w panelu właściciela). Wyk�
 - Moderator dodaje egzaminatorów, zawiesza ich (1 godz. – limit ustawia właściciel) i składa wnioski o usunięcie konta. Wnioski rozpatruje administrator.
 - Wszystkie limity ustawia właściciel: Centrum bezpieczeństwa → „Limity egzaminatorów i moderatorów”.
 - Wymaga migracji `20261124100000_examiner_roles` (tabela `account_removal_requests`).
+- Zawieszenie: moderator podaje powód, który zawieszona osoba widzi przy próbie logowania razem z przyciskiem „Odwołaj się od zawieszenia”. Odwołanie widać przy koncie (moderator i administrator) i trafia e-mailem do administratorów. Zdjęcie zawieszenia czyści powód i odwołanie.
+- Właściciel może ustawić wyjątek od limitów dla jednej osoby (przycisk „Limity” przy koncie w panelu „Egzaminatorzy”).
+- Przy ustawianiu hasła widać miernik siły hasła z listą braków.

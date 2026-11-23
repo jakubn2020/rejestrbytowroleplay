@@ -110,6 +110,7 @@ export const AUDIT_ACTION_LABELS = {
   examiner_removal_decide: 'Rozpatrzono wniosek o usunięcie konta egzaminatora',
   examiner_delete: 'Usunięto konto egzaminatora lub moderatora',
   examiner_limits: 'Zmiana limitów egzaminatorów',
+  examiner_appeal: 'Odwołanie od zawieszenia konta',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS

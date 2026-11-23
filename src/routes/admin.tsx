@@ -127,7 +127,7 @@ import { ExamStaffPanel } from '@/components/examiners/exam-staff-panel'
 import { getAdminCounts } from '@/lib/alerts.functions'
 import { getMyBadge } from '@/lib/activity.functions'
 import { getSiteStatus, setMaintenance } from '@/lib/site.functions'
-import { changeOwnPassword, currentUser, loginUser, logoutUser } from '@/lib/auth.functions'
+import { appealSuspension, changeOwnPassword, currentUser, loginUser, logoutUser } from '@/lib/auth.functions'
 import type { AuthUser } from '@/lib/auth-types'
 import {
   endMfaSession,
@@ -315,17 +315,52 @@ function ForcedPasswordChange({ onDone, onLogout }: { onDone: () => void; onLogo
 function LoginForm({ onDone }: { onDone: (user: AuthUser) => void }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [suspension, setSuspension] = useState<{
+    email: string
+    password: string
+    until: string
+    why: string | null
+    appealSent: boolean
+  } | null>(null)
+
+  async function appeal() {
+    if (!suspension) return
+    try {
+      const result = await appealSuspension({ data: { email: suspension.email, password: suspension.password } })
+      if (!result.ok) {
+        toast.error(result.error)
+        if (/już wysłane/.test(result.error)) setSuspension({ ...suspension, appealSent: true })
+        return
+      }
+      toast.success('Odwołanie wysłane. Moderator je zobaczy.')
+      setSuspension({ ...suspension, appealSent: true })
+    } catch {
+      toast.error('Nie udało się wysłać odwołania.')
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const fields = new FormData(event.currentTarget)
     setPending(true)
     setError(null)
+    setSuspension(null)
     const email = String(fields.get('email'))
     try {
       const result = await loginUser({
         data: { email, password: String(fields.get('password')) },
       })
+      if (!result.ok && result.reason === 'suspended') {
+        setError('Twoje konto jest zawieszone.')
+        setSuspension({
+          email,
+          password: String(fields.get('password')),
+          until: result.until,
+          why: result.why,
+          appealSent: result.appealSent,
+        })
+        return
+      }
       if (!result.ok) {
         setError(
           result.reason === 'blocked'
@@ -367,6 +402,19 @@ function LoginForm({ onDone }: { onDone: (user: AuthUser) => void }) {
             <p role="alert" className="text-sm text-destructive">
               {error}
             </p>
+          )}
+          {suspension && (
+            <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p>Zawieszenie trwa do {formatDateTime(suspension.until)}.</p>
+              <p>Powód: {suspension.why ?? 'nie podano'}</p>
+              {suspension.appealSent ? (
+                <p className="font-medium">Odwołanie zostało wysłane. Poczekaj na odpowiedź moderatora.</p>
+              ) : (
+                <Button type="button" variant="outline" size="sm" onClick={() => void appeal()}>
+                  Odwołaj się od zawieszenia
+                </Button>
+              )}
+            </div>
           )}
           <Button type="submit" className="w-full" disabled={pending}>
             {pending ? 'Logowanie…' : 'Zaloguj się'}
@@ -889,7 +937,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
       )}
       {isAdmin && showExamStaff && (
         <Closable onClose={() => setShowExamStaff(false)}>
-          <ExamStaffAdmin onChanged={() => setLogVersion((version) => version + 1)} />
+          <ExamStaffAdmin isOwner={user.isSuperAdmin} onChanged={() => setLogVersion((version) => version + 1)} />
         </Closable>
       )}
       {user.isSuperAdmin && showAdmins && (

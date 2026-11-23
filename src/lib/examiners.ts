@@ -55,3 +55,14 @@ export const EXAMINER_TIPS: string[] = [
   'Odrzucony wniosek ma uwagę administratora. Przeczytaj ją, zanim złożysz poprawiony.',
   'Nie udostępniaj hasła nikomu. Moderator nie zna Twojego hasła i nigdy o nie nie poprosi.',
 ]
+
+/** Limits that can be set for one examiner, on top of the general ones (owner only). */
+export type ExaminerOverride = Partial<Pick<ExaminerLimits, 'requestsCount' | 'requestsWindowMinutes' | 'pendingMax'>>
+
+export const OVERRIDE_KEYS = ['requestsCount', 'requestsWindowMinutes', 'pendingMax'] as const
+
+export const userKey = {
+  override: (id: string) => `exlim_user_${id}`,
+  suspension: (id: string) => `susp_${id}`,
+  appeal: (id: string) => `appeal_${id}`,
+}
