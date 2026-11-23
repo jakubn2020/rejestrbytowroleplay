@@ -15,7 +15,6 @@ import { requireSuperAdmin as requireExamStaff } from './auth-server'
 import { clearSetting, readSetting, writeSetting } from './site-settings-server'
 import {
   autoLogins,
-  extractPdfText,
   generateQuestionsWithAi,
   parseJsonRecord,
   randomToken,
@@ -62,8 +61,8 @@ const pdfKey = (examId: number) => `exam_pdftext_${examId}`
 const createInput = z.object({
   title: z.string().trim().min(1, 'Podaj tytuł').max(120),
   topic: z.string().trim().max(4000),
-  /** The PDF is uploaded once here and kept for the following AI steps. */
-  pdfBase64: z.string().max(9_000_000).optional(),
+  /** Text read from the PDF in the browser; kept for the following AI steps. */
+  pdfText: z.string().max(30_000).optional(),
   durationMinutes: z.number().int().min(5).max(300),
   passPercent: z.number().int().min(1).max(100),
 })
@@ -75,20 +74,9 @@ export const createExam = createServerFn({ method: 'POST' })
   .middleware([requireExamStaff])
   .validator(createInput)
   .handler(async ({ data, context }): Promise<CreateExamResult> => {
-    if (!data.topic && !data.pdfBase64) return { ok: false, error: 'Opisz zagadnienia albo dołącz plik PDF.' }
-    let pdfText = ''
-    if (data.pdfBase64) {
-      try {
-        pdfText = await extractPdfText(data.pdfBase64)
-      } catch {
-        return { ok: false, error: 'Nie udało się odczytać pliku PDF. Wklej treść zagadnień w pole tekstowe.' }
-      }
-      if (pdfText.length < 50 && !data.topic) {
-        return {
-          ok: false,
-          error: 'W tym PDF nie ma tekstu (to chyba skan lub obrazki). Wklej treść zagadnień w pole tekstowe.',
-        }
-      }
+    const pdfText = (data.pdfText ?? '').trim().slice(0, 20_000)
+    if (!data.topic && pdfText.length < 50) {
+      return { ok: false, error: 'Opisz zagadnienia albo dołącz PDF z tekstem (skan bez tekstu nie zadziała).' }
     }
     const [exam] = await db
       .insert(exams)

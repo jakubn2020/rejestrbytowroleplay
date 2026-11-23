@@ -1,5 +1,4 @@
 /** Server-only helpers of the exam module: the AI call, shuffling and scoring. */
-import { extractText, getDocumentProxy } from 'unpdf'
 
 export type QuestionKind = 'abcde' | 'tf' | 'open'
 
@@ -117,14 +116,6 @@ export type GenerateInput = {
   nAbcde: number
   nTf: number
   nOpen: number
-}
-
-/** Plain text of a PDF (base64), cut to what an AI request can take. Empty for a scan with no text layer. */
-export async function extractPdfText(pdfBase64: string): Promise<string> {
-  const bytes = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0))
-  const pdf = await getDocumentProxy(bytes)
-  const { text } = await extractText(pdf, { mergePages: true })
-  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 20_000)
 }
 
 function buildPrompt(input: GenerateInput): string {

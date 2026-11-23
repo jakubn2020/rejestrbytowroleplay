@@ -14,20 +14,12 @@ import {
   type ExamListRow,
   type SessionListRow,
 } from '@/lib/exams.functions'
+import { extractPdfTextInBrowser } from '@/lib/pdf-text-client'
 import type { ExamView } from '@/routes/egzaminy'
 
 const MAX_PDF_BYTES = 6 * 1024 * 1024
 
 const STATUS_LABELS = { lobby: 'czeka na start', running: 'trwa', finished: 'zakończony' } as const
-
-function readPdf(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '')
-    reader.onerror = () => reject(new Error('read'))
-    reader.readAsDataURL(file)
-  })
-}
 
 export function ExamsHome({ onOpen }: { onOpen: (view: ExamView) => void }) {
   const [exams, setExams] = useState<ExamListRow[] | null>(null)
@@ -137,9 +129,21 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
     setBusy(true)
     let examId: number | null = null
     try {
-      const pdfBase64 = file ? await readPdf(file) : undefined
+      let pdfText: string | undefined
+      if (file) {
+        try {
+          pdfText = await extractPdfTextInBrowser(file)
+        } catch {
+          toast.error('Nie udało się odczytać PDF. Wklej treść zagadnień w pole tekstowe.')
+          return
+        }
+        if (pdfText.length < 50 && !topic.trim()) {
+          toast.error('W tym PDF nie ma tekstu (to chyba skan). Wklej treść zagadnień w pole tekstowe.')
+          return
+        }
+      }
       const created = await createExam({
-        data: { title, topic, pdfBase64, durationMinutes: duration, passPercent: pass },
+        data: { title, topic, pdfText, durationMinutes: duration, passPercent: pass },
       })
       if (!created.ok) {
         toast.error(created.error)
