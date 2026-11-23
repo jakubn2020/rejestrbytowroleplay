@@ -15,6 +15,7 @@ import { requireSuperAdmin as requireExamStaff } from './auth-server'
 import { clearSetting, readSetting, writeSetting } from './site-settings-server'
 import {
   autoLogins,
+  extractPdfText,
   generateQuestionsWithAi,
   parseJsonRecord,
   randomToken,
@@ -55,7 +56,8 @@ export const listExams = createServerFn({ method: 'GET' })
     }))
   })
 
-const pdfKey = (examId: number) => `exam_pdf_${examId}`
+/** The text read from the attached PDF, kept for the following AI steps. */
+const pdfKey = (examId: number) => `exam_pdftext_${examId}`
 
 const createInput = z.object({
   title: z.string().trim().min(1, 'Podaj tytuł').max(120),
@@ -74,6 +76,20 @@ export const createExam = createServerFn({ method: 'POST' })
   .validator(createInput)
   .handler(async ({ data, context }): Promise<CreateExamResult> => {
     if (!data.topic && !data.pdfBase64) return { ok: false, error: 'Opisz zagadnienia albo dołącz plik PDF.' }
+    let pdfText = ''
+    if (data.pdfBase64) {
+      try {
+        pdfText = await extractPdfText(data.pdfBase64)
+      } catch {
+        return { ok: false, error: 'Nie udało się odczytać pliku PDF. Wklej treść zagadnień w pole tekstowe.' }
+      }
+      if (pdfText.length < 50 && !data.topic) {
+        return {
+          ok: false,
+          error: 'W tym PDF nie ma tekstu (to chyba skan lub obrazki). Wklej treść zagadnień w pole tekstowe.',
+        }
+      }
+    }
     const [exam] = await db
       .insert(exams)
       .values({
@@ -84,7 +100,7 @@ export const createExam = createServerFn({ method: 'POST' })
         passPercent: data.passPercent,
       })
       .returning({ id: exams.id })
-    if (data.pdfBase64) await writeSetting(pdfKey(exam.id), data.pdfBase64)
+    if (pdfText) await writeSetting(pdfKey(exam.id), pdfText)
     return { ok: true, id: exam.id }
   })
 
@@ -111,8 +127,8 @@ export const generatePart = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<PartResult> => {
     let questions
     try {
-      const pdfBase64 = (await readSetting(pdfKey(data.examId))) || undefined
-      questions = await generateQuestionsWithAi({ ...data, pdfBase64 })
+      const material = (await readSetting(pdfKey(data.examId))) || undefined
+      questions = await generateQuestionsWithAi({ ...data, material })
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Nie udało się wygenerować pytań.' }
     }

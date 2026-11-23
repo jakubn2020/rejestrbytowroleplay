@@ -1,4 +1,5 @@
 /** Server-only helpers of the exam module: the AI call, shuffling and scoring. */
+import { extractText, getDocumentProxy } from 'unpdf'
 import { z } from 'zod'
 
 export type QuestionKind = 'abcde' | 'tf' | 'open'
@@ -41,14 +42,6 @@ function clean(raw: z.infer<typeof aiQuestion>): QuestionDraft | null {
 }
 
 const SYSTEM = `Jesteś pomocnikiem wykładowcy w fikcyjnej szkole medycznej (gra fabularna). Tworzysz egzaminy po polsku na podstawie podanych zagadnień. Odpowiadasz WYŁĄCZNIE poprawnym JSON-em, bez komentarzy i bez bloków kodu.`
-
-export type GenerateInput = {
-  topic: string
-  pdfBase64?: string
-  nAbcde: number
-  nTf: number
-  nOpen: number
-}
 
 /** Newest stable Flash model available to this key that can generate content (or null). */
 async function pickFlashModel(key: string): Promise<string | null> {
@@ -104,11 +97,20 @@ const TEMPORARY = [429, 500, 502, 503, 504]
 
 export type GenerateInput = {
   topic: string
-  pdfBase64?: string
+  /** Text read from the attached PDF (the AI gets text only, so every provider can be used). */
+  material?: string
   version: ExamVersion
   nAbcde: number
   nTf: number
   nOpen: number
+}
+
+/** Plain text of a PDF (base64), cut to what an AI request can take. Empty for a scan with no text layer. */
+export async function extractPdfText(pdfBase64: string): Promise<string> {
+  const bytes = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0))
+  const pdf = await getDocumentProxy(bytes)
+  const { text } = await extractText(pdf, { mergePages: true })
+  return text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, 20_000)
 }
 
 function buildPrompt(input: GenerateInput): string {
@@ -134,7 +136,9 @@ Format odpowiedzi:
 {"questions":[{"kind":"abcde","prompt":"...","options":["...","...","...","...","..."],"correct":"2"},{"kind":"tf","prompt":"...","options":[],"correct":"true"},{"kind":"open","prompt":"...","options":[],"correct":"..."}]}
 
 Materiał / zagadnienia od wykładowcy:
-${input.topic.trim() || '(patrz załączony plik PDF)'}`
+${input.topic.trim() || '(patrz tekst z pliku poniżej)'}${
+    input.material ? `\n\nTekst z załączonego pliku PDF:\n${input.material}` : ''
+  }`
   return prompt
 }
 
@@ -153,7 +157,6 @@ async function askGemini(input: GenerateInput, prompt: string): Promise<string> 
 
   const call = (modelName: string, lowThinking = true) => {
     const parts: unknown[] = [{ text: prompt }]
-    if (input.pdfBase64) parts.push({ inline_data: { mime_type: 'application/pdf', data: input.pdfBase64 } })
     return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
@@ -295,8 +298,7 @@ export async function generateQuestionsWithAi(input: GenerateInput): Promise<Que
   const attempts: Attempt[] = []
   const gemini: Attempt = () => askGemini(input, prompt)
   const groq: Attempt = () => askGroq(prompt, groqKey)
-  // Groq cannot read a PDF, so with an attached file Gemini is the only choice.
-  const groqUsable = Boolean(groqKey) && !input.pdfBase64
+  const groqUsable = Boolean(groqKey)
   if (groqFirst && groqUsable) attempts.push(groq)
   if (geminiKey || !groqKey) attempts.push(gemini)
   if (!groqFirst && groqUsable) attempts.push(groq)
@@ -308,9 +310,6 @@ export async function generateQuestionsWithAi(input: GenerateInput): Promise<Que
     } catch (error) {
       firstError ??= error instanceof Error ? error : new Error('Nie udało się wygenerować pytań.')
     }
-  }
-  if (groqKey && input.pdfBase64 && !geminiKey) {
-    throw new Error('Groq nie czyta plików PDF. Wklej treść zagadnień w pole tekstowe albo dodaj klucz Gemini.')
   }
   throw firstError ?? new Error('Nie udało się wygenerować pytań.')
 }

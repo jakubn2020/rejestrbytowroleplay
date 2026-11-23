@@ -15,6 +15,7 @@
     "create-user": "tsx scripts/create-user.ts"
   },
   "dependencies": {
+    "unpdf": "^1.0.0",
     "@hookform/resolvers": "5.9.1",
     "@neondatabase/serverless": "^1.2.1",
     "@radix-ui/react-accordion": "1.3.1",
