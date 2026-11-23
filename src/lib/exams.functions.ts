@@ -100,7 +100,7 @@ export const generatePart = createServerFn({ method: 'POST' })
     z
       .object({
         examId: z.number().int().positive(),
-        version: z.enum(['A', 'B', 'C']),
+        version: z.enum(['A', 'B', 'C', 'D', 'E']),
         topic: z.string().trim().max(4000),
         nAbcde: z.number().int().min(0).max(30),
         nTf: z.number().int().min(0).max(30),
@@ -233,7 +233,7 @@ export const saveQuestion = createServerFn({ method: 'POST' })
       examId: z.number().int().positive(),
       /** Existing question to change; without it a new question is added to `version`. */
       id: z.number().int().positive().optional(),
-      version: z.enum(['A', 'B', 'C']),
+      version: z.enum(['A', 'B', 'C', 'D', 'E']),
       question: questionInput,
     }),
   )

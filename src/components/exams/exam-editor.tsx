@@ -15,7 +15,14 @@ import {
 import type { ExamView } from '@/routes/egzaminy'
 
 type Question = ExamDetail['questions'][number]
-type Version = 'A' | 'B' | 'C'
+type Version = 'A' | 'B' | 'C' | 'D' | 'E'
+
+/** Letters of the versions this exam has (at least A). */
+function versionsOf(exam: ExamDetail): Version[] {
+  const letters = new Set(exam.questions.map((q) => q.version))
+  const list = (['A', 'B', 'C', 'D', 'E'] as const).filter((v) => letters.has(v))
+  return list.length ? list : ['A']
+}
 
 const KIND_LABELS = { abcde: 'Zamknięte A–E', tf: 'Prawda / Fałsz', open: 'Otwarte' } as const
 
@@ -49,7 +56,7 @@ export function ExamEditor({ id, onOpen }: { id: number; onOpen: (view: ExamView
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Pytania</h2>
           <div className="flex gap-1" role="tablist" aria-label="Wersja egzaminu">
-            {(['A', 'B', 'C'] as const).map((v) => (
+            {versionsOf(exam).map((v) => (
               <Button key={v} size="sm" variant={version === v ? 'default' : 'outline'} onClick={() => setVersion(v)}>
                 Wersja {v} ({exam.questions.filter((q) => q.version === v).length})
               </Button>

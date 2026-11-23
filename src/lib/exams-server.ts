@@ -11,7 +11,8 @@ export type QuestionDraft = {
   points: number
 }
 
-export const VERSIONS = ['A', 'B', 'C'] as const
+export const VERSIONS = ['A', 'B', 'C', 'D', 'E'] as const
+export type ExamVersion = (typeof VERSIONS)[number]
 
 const aiQuestion = z.object({
   kind: z.enum(['abcde', 'tf', 'open']),
@@ -104,7 +105,7 @@ const TEMPORARY = [429, 500, 502, 503, 504]
 export type GenerateInput = {
   topic: string
   pdfBase64?: string
-  version: 'A' | 'B' | 'C'
+  version: ExamVersion
   nAbcde: number
   nTf: number
   nOpen: number

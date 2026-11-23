@@ -118,6 +118,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
   const [nOpen, setNOpen] = useState(2)
   const [duration, setDuration] = useState(30)
   const [pass, setPass] = useState(60)
+  const [versionCount, setVersionCount] = useState(3)
   const [busy, setBusy] = useState(false)
 
   const [progress, setProgress] = useState<string | null>(null)
@@ -151,15 +152,15 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
         nAbcde > 0 && { nAbcde, nTf: 0, nOpen: 0 },
         nTf + nOpen > 0 && { nAbcde: 0, nTf, nOpen },
       ].filter((step): step is { nAbcde: number; nTf: number; nOpen: number } => Boolean(step))
-      const total = steps.length * 3
-      let done = 0
+      const letters = (['A', 'B', 'C', 'D', 'E'] as const).slice(0, versionCount)
+      const totalQuestions = (nAbcde + nTf + nOpen) * letters.length
       let added = 0
       const errors: string[] = []
-      setProgress(`Generuję pytania… 0/${total}`)
+      setProgress(`Generuję pytania… 0 z ${totalQuestions}`)
       const id = created.id
 
       await Promise.all(
-        (['A', 'B', 'C'] as const).map(async (version) => {
+        letters.map(async (version) => {
           for (const step of steps) {
             let result: Awaited<ReturnType<typeof generatePart>> | null = null
             for (let attempt = 0; attempt < 3; attempt++) {
@@ -170,10 +171,10 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
               }
               if (result.ok) break
             }
-            done++
-            setProgress(`Generuję pytania… ${done}/${total}`)
-            if (result?.ok) added += result.added
-            else if (result) errors.push(`wersja ${version}: ${result.error}`)
+            if (result?.ok) {
+              added += result.added
+              setProgress(`Generuję pytania… ${added} z ${totalQuestions}`)
+            } else if (result) errors.push(`wersja ${version}: ${result.error}`)
           }
         }),
       )
@@ -210,7 +211,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
     <Panel>
       <h2 className="text-lg font-semibold">Nowy egzamin (generowany przez AI)</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Opisz, z czego ma być egzamin, i/lub dołącz PDF z zagadnieniami. AI przygotuje trzy wersje (A, B, C), które potem możesz ręcznie poprawić.
+        Opisz, z czego ma być egzamin, i/lub dołącz PDF z zagadnieniami. AI przygotuje wybraną liczbę wersji (A, B, C…), które potem możesz ręcznie poprawić. Każda wersja ma tyle pytań, ile ustawisz poniżej.
       </p>
       <form onSubmit={submit} className="mt-4 space-y-3">
         <label className="block text-sm">
@@ -225,7 +226,8 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
           Plik PDF z zagadnieniami (opcjonalnie, do 6 MB)
           <input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="mt-1 block text-sm" />
         </label>
-        <div className="grid gap-3 sm:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-6">
+          {number(versionCount, setVersionCount, 'Liczba wersji (1–5)', 1, 5)}
           {number(nAbcde, setNAbcde, 'Pytań A–E', 0, 30)}
           {number(nTf, setNTf, 'Pytań P/F', 0, 30)}
           {number(nOpen, setNOpen, 'Pytań otwartych', 0, 15)}
