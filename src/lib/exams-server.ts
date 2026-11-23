@@ -67,6 +67,36 @@ async function pickFlashModel(key: string): Promise<string | null> {
   return candidates.find((name) => /flash/.test(name) && !/lite|image|tts|live|audio|embed|preview|exp/.test(name)) ?? null
 }
 
+/** Reads a streamed (server-sent events) Gemini answer and returns the whole text. */
+async function readStream(response: Response): Promise<string> {
+  const reader = response.body?.getReader()
+  if (!reader) return ''
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let text = ''
+  const take = (line: string) => {
+    if (!line.startsWith('data:')) return
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') return
+    try {
+      const chunk = JSON.parse(payload) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
+      text += chunk.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? ''
+    } catch {
+      // an incomplete or non-text chunk: ignore it
+    }
+  }
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) take(line.trim())
+  }
+  take(buffer.trim())
+  return text
+}
+
 /** Total time allowed for the AI (the platform cuts requests off after about 100 s). */
 const AI_TIMEOUT_MS = 80_000
 const TEMPORARY = [429, 500, 502, 503, 504]
@@ -105,7 +135,7 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
   const call = (modelName: string, version: 'A' | 'B' | 'C', lowThinking = true) => {
     const parts: unknown[] = [{ text: promptFor(version) }]
     if (input.pdfBase64) parts.push({ inline_data: { mime_type: 'application/pdf', data: input.pdfBase64 } })
-    return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`, {
+    return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
       signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())),
@@ -172,14 +202,15 @@ ${input.topic.trim() || '(patrz załączony plik PDF)'}`
   }
 
   const result = { A: [], B: [], C: [] } as Record<'A' | 'B' | 'C', QuestionDraft[]>
-  for (const [index, response] of responses.entries()) {
-    let text: string | undefined
-    try {
-      const body = (await response.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] }
-      text = body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('')
-    } catch {
-      text = undefined
-    }
+  let texts: string[]
+  try {
+    texts = await Promise.all(responses.map((response) => readStream(response)))
+  } catch {
+    throw new Error(
+      'AI nie odpowiedziało na czas (limit 80 s). Zmniejsz liczbę pytań albo rozmiar pliku PDF i spróbuj ponownie.',
+    )
+  }
+  for (const [index, text] of texts.entries()) {
     if (!text) continue
     const json = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
     try {
