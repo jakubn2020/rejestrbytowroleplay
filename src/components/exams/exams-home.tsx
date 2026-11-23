@@ -16,8 +16,7 @@ import {
 } from '@/lib/exams.functions'
 import type { ExamView } from '@/routes/egzaminy'
 
-// The PDF is sent with every small AI request, so it is kept modest.
-const MAX_PDF_BYTES = 4 * 1024 * 1024
+const MAX_PDF_BYTES = 6 * 1024 * 1024
 
 const STATUS_LABELS = { lobby: 'czeka na start', running: 'trwa', finished: 'zakończony' } as const
 
@@ -126,7 +125,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     if (file && file.size > MAX_PDF_BYTES) {
-      toast.error('Plik PDF jest za duży (maksymalnie 4 MB).')
+      toast.error('Plik PDF jest za duży (maksymalnie 6 MB).')
       return
     }
     if (nAbcde + nTf + nOpen === 0) {
@@ -138,7 +137,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
     try {
       const pdfBase64 = file ? await readPdf(file) : undefined
       const created = await createExam({
-        data: { title, topic, hasPdf: Boolean(file), durationMinutes: duration, passPercent: pass },
+        data: { title, topic, pdfBase64, durationMinutes: duration, passPercent: pass },
       })
       if (!created.ok) {
         toast.error(created.error)
@@ -146,7 +145,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
       }
       examId = created.id
 
-      // Several small requests (each with its own time limit): the three versions run side by side,
+      // The PDF was uploaded once above. Several small requests (each with its own time limit): the three versions run side by side,
       // and within a version the closed questions and the rest are separate steps.
       const steps = [
         nAbcde > 0 && { nAbcde, nTf: 0, nOpen: 0 },
@@ -165,7 +164,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
             let result: Awaited<ReturnType<typeof generatePart>> | null = null
             for (let attempt = 0; attempt < 3; attempt++) {
               try {
-                result = await generatePart({ data: { examId: id, version, topic, pdfBase64, ...step } })
+                result = await generatePart({ data: { examId: id, version, topic, ...step } })
               } catch {
                 result = { ok: false, error: 'Błąd połączenia z serwerem.' }
               }
@@ -223,7 +222,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
           <textarea value={topic} onChange={(e) => setTopic(e.target.value)} rows={4} maxLength={4000} className="mt-1 w-full rounded-md border border-input bg-white px-3 py-2 text-sm" placeholder="np. resuscytacja krążeniowo-oddechowa dorosłych, zasady AED, pozycja boczna ustalona…" />
         </label>
         <label className="block text-sm">
-          Plik PDF z zagadnieniami (opcjonalnie, do 4 MB)
+          Plik PDF z zagadnieniami (opcjonalnie, do 6 MB)
           <input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="mt-1 block text-sm" />
         </label>
         <div className="grid gap-3 sm:grid-cols-5">

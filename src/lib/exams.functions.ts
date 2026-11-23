@@ -12,6 +12,7 @@ import {
 } from '../../db/schema'
 // Beta: only the owner. Later this becomes "lecturer or examiner" (roles added by an admin).
 import { requireSuperAdmin as requireExamStaff } from './auth-server'
+import { clearSetting, readSetting, writeSetting } from './site-settings-server'
 import {
   autoLogins,
   generateQuestionsWithAi,
@@ -54,10 +55,13 @@ export const listExams = createServerFn({ method: 'GET' })
     }))
   })
 
+const pdfKey = (examId: number) => `exam_pdf_${examId}`
+
 const createInput = z.object({
   title: z.string().trim().min(1, 'Podaj tytuł').max(120),
   topic: z.string().trim().max(4000),
-  hasPdf: z.boolean(),
+  /** The PDF is uploaded once here and kept for the following AI steps. */
+  pdfBase64: z.string().max(9_000_000).optional(),
   durationMinutes: z.number().int().min(5).max(300),
   passPercent: z.number().int().min(1).max(100),
 })
@@ -69,7 +73,7 @@ export const createExam = createServerFn({ method: 'POST' })
   .middleware([requireExamStaff])
   .validator(createInput)
   .handler(async ({ data, context }): Promise<CreateExamResult> => {
-    if (!data.topic && !data.hasPdf) return { ok: false, error: 'Opisz zagadnienia albo dołącz plik PDF.' }
+    if (!data.topic && !data.pdfBase64) return { ok: false, error: 'Opisz zagadnienia albo dołącz plik PDF.' }
     const [exam] = await db
       .insert(exams)
       .values({
@@ -80,6 +84,7 @@ export const createExam = createServerFn({ method: 'POST' })
         passPercent: data.passPercent,
       })
       .returning({ id: exams.id })
+    if (data.pdfBase64) await writeSetting(pdfKey(exam.id), data.pdfBase64)
     return { ok: true, id: exam.id }
   })
 
@@ -97,7 +102,6 @@ export const generatePart = createServerFn({ method: 'POST' })
         examId: z.number().int().positive(),
         version: z.enum(['A', 'B', 'C']),
         topic: z.string().trim().max(4000),
-        pdfBase64: z.string().max(7_000_000).optional(),
         nAbcde: z.number().int().min(0).max(30),
         nTf: z.number().int().min(0).max(30),
         nOpen: z.number().int().min(0).max(15),
@@ -107,7 +111,8 @@ export const generatePart = createServerFn({ method: 'POST' })
   .handler(async ({ data }): Promise<PartResult> => {
     let questions
     try {
-      questions = await generateQuestionsWithAi(data)
+      const pdfBase64 = (await readSetting(pdfKey(data.examId))) || undefined
+      questions = await generateQuestionsWithAi({ ...data, pdfBase64 })
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Nie udało się wygenerować pytań.' }
     }
@@ -289,6 +294,7 @@ export const deleteExam = createServerFn({ method: 'POST' })
     }
     await db.delete(examQuestions).where(eq(examQuestions.examId, data.id))
     await db.delete(exams).where(eq(exams.id, data.id))
+    await clearSetting(pdfKey(data.id)).catch(() => undefined)
     return { ok: true as const }
   })
 
