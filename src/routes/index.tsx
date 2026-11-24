@@ -190,7 +190,7 @@ function Field({
         {label}
       </dt>
       <dd className={mono ? 'mt-1 font-mono text-lg' : 'mt-1 text-base'}>
-        <CountUp value={value} />
+        {value}
       </dd>
     </div>
   )
@@ -200,7 +200,7 @@ function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border bg-white px-2 py-4 shadow-sm">
       <dd className="font-[family-name:var(--font-heading)] text-3xl font-bold text-[var(--registry-navy)]">
-        {value}
+        <CountUp value={value} />
       </dd>
       <dt className="mt-1 text-xs text-muted-foreground sm:text-sm">{label}</dt>
     </div>
