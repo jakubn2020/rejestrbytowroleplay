@@ -23,6 +23,7 @@ import {
   releaseCooldown,
 } from './security-server'
 import { FLAG_KEYS, readFlag } from './site-settings-server'
+import { assertPermission, permissionDenied } from './permissions-server'
 
 const COOLDOWN_MESSAGE =
   'Kierownictwo może złożyć jeden wniosek na 5 minut. Spróbuj ponownie później.'
@@ -50,6 +51,8 @@ export const submitRequest = createServerFn({ method: 'POST' })
   .middleware([requireStaff])
   .validator(submitInput)
   .handler(async ({ data, context }): Promise<SubmitResult> => {
+    const denied = await permissionDenied(context.user, 'request_create')
+    if (denied) return { ok: false, error: denied }
     if (context.isAdmin) {
       return {
         ok: false,
@@ -199,6 +202,7 @@ export const decideRequest = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data, context }): Promise<DecideResult> => {
+    await assertPermission(context.user, 'decide_requests')
     const next: RequestStatus = data.decision === 'approve' ? 'approved' : 'rejected'
     // Claim the request first so two admins cannot decide it twice.
     const [claimed] = await db

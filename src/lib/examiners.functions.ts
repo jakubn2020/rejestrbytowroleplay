@@ -29,6 +29,7 @@ import {
   type ExaminerOverride,
   type ExaminerRequestStats,
 } from './examiners'
+import { permissionDenied } from './permissions-server'
 
 // ---------------------------------------------------------------------------
 // Limits (the owner decides all of them)
@@ -211,6 +212,8 @@ export const submitExaminerRequest = createServerFn({ method: 'POST' })
   .middleware([requireExaminer])
   .validator(z.object({ person: practitionerInput, proof: proofSchema }))
   .handler(async ({ data, context }): Promise<ExaminerSubmitResult> => {
+    const denied = await permissionDenied(context.user, 'request_create')
+    if (denied) return { ok: false, error: denied }
     if (!(await readFlag(FLAG_KEYS.requests))) {
       return { ok: false, error: 'Składanie wniosków jest chwilowo wyłączone przez właściciela.' }
     }
@@ -540,6 +543,8 @@ export const addExaminer = createServerFn({ method: 'POST' })
   .middleware([requireExamMod])
   .validator(z.object({ email: emailSchema, password: passwordSchema }))
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const denied = await permissionDenied(context.user, 'moderate_examiners')
+    if (denied) return { ok: false, error: denied }
     const limits = await readLimits()
     const total = (await examStaffRows([ROLE_EXAMINER])).length
     if (total >= limits.maxExaminers) {
@@ -574,6 +579,8 @@ export const suspendExaminer = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const denied = await permissionDenied(context.user, 'moderate_examiners')
+    if (denied) return { ok: false, error: denied }
     const limits = await readLimits()
     if (data.hours > limits.suspendMaxHours) {
       return { ok: false, error: `Najdłuższe zawieszenie, jakie możesz nałożyć: ${limits.suspendMaxHours} godz. Dłuższe zawieszenie zgłoś administratorowi.` }
@@ -618,6 +625,8 @@ export const requestExaminerRemoval = createServerFn({ method: 'POST' })
   .middleware([requireExamMod])
   .validator(z.object({ id: idSchema.shape.id, reason: z.string().trim().min(5, 'Podaj powód (co najmniej 5 znaków)').max(500) }))
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const denied = await permissionDenied(context.user, 'moderate_examiners')
+    if (denied) return { ok: false, error: denied }
     const limits = await readLimits()
     const target = await examinerTarget(data.id)
     if (!target) return { ok: false, error: 'To konto nie jest kontem egzaminatora.' }
@@ -689,19 +698,23 @@ export const countPendingRemovals = createServerFn({ method: 'GET' })
 export const addExamStaff = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(z.object({ email: emailSchema, password: passwordSchema, role: z.enum(['examiner', 'moderator']) }))
-  .handler(async ({ data, context }) =>
-    addExamAccount(
+  .handler(async ({ data, context }) => {
+    const denied = await permissionDenied(context.user, 'manage_examiners')
+    if (denied) return { ok: false as const, error: denied }
+    return addExamAccount(
       { email: data.email, password: data.password },
       data.role === 'moderator' ? ROLE_EXAM_MOD : ROLE_EXAMINER,
       { identity: context.identity, role: ROLE_ADMIN },
-    ),
-  )
+    )
+  })
 
 /** Admin: deletes an examiner or moderator account right away (no request needed). */
 export const deleteExamStaff = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(idSchema)
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const denied = await permissionDenied(context.user, 'manage_examiners')
+    if (denied) return { ok: false, error: denied }
     const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
     if (!row || row.roles.includes(ROLE_ADMIN) || row.roles.includes(ROLE_MANAGEMENT) || !(row.roles.includes(ROLE_EXAMINER) || row.roles.includes(ROLE_EXAM_MOD))) {
       return { ok: false, error: 'To nie jest konto egzaminatora ani moderatora.' }
@@ -717,6 +730,8 @@ export const decideRemoval = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(z.object({ id: z.number().int().positive(), decision: z.enum(['approve', 'reject']), note: z.string().trim().max(300).optional() }))
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const denied = await permissionDenied(context.user, 'manage_examiners')
+    if (denied) return { ok: false, error: denied }
     const [claimed] = await db
       .update(accountRemovalRequests)
       .set({

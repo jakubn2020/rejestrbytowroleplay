@@ -30,6 +30,7 @@ import {
   notifyUser,
   releaseCooldown,
 } from './security-server'
+import { permissionDenied } from './permissions-server'
 
 const COOLDOWN_MESSAGE =
   'Kierownictwo może złożyć jeden wniosek na 5 minut. Spróbuj ponownie później.'
@@ -60,6 +61,8 @@ export const submitExpiryRequest = createServerFn({ method: 'POST' })
   .middleware([requireStaff])
   .validator(submitInput)
   .handler(async ({ data, context }): Promise<ExpirySubmitResult> => {
+    const denied = await permissionDenied(context.user, 'expiry_request')
+    if (denied) return { ok: false, error: denied }
     if (context.isAdmin) {
       return {
         ok: false,

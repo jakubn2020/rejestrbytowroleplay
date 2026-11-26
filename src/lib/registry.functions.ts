@@ -60,6 +60,7 @@ import {
   trackTraffic,
 } from './security-server'
 import { readMaintenance } from './site-settings-server'
+import { assertPermission } from './permissions-server'
 
 /** Rows that are not in the trash. */
 const alive = isNull(practitioners.deletedAt)
@@ -203,6 +204,7 @@ export const searchRegistry = createServerFn({ method: 'GET' })
 export const listPractitioners = createServerFn({ method: 'GET' })
   .middleware([requireStaff])
   .handler(async ({ context }) => {
+    await assertPermission(context.user, 'view_registry')
     const rows = await db
       .select()
       .from(practitioners)
@@ -232,6 +234,7 @@ export const revealPesel = createServerFn({ method: 'POST' })
     }),
   )
   .handler(async ({ data, context }) => {
+    await assertPermission(context.user, 'pesel_reveal')
     const [row] = await db
       .select()
       .from(practitioners)
@@ -341,6 +344,7 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(updateInput)
   .handler(async ({ data, context }): Promise<UpdateResult> => {
+    await assertPermission(context.user, 'edit_entries')
     const [existing] = await db
       .select()
       .from(practitioners)
@@ -455,6 +459,7 @@ export const deletePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
+    await assertPermission(context.user, 'delete_entries')
     const [existing] = await db
       .select()
       .from(practitioners)
@@ -498,6 +503,7 @@ export const getBadge = createServerFn({ method: 'GET' })
   .middleware([requireStaff])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
+    await assertPermission(context.user, 'badge')
     const [row] = await db
       .select()
       .from(practitioners)
@@ -997,6 +1003,7 @@ export const bulkUpdateEntries = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(bulkInput)
   .handler(async ({ data, context }) => {
+    await assertPermission(context.user, 'bulk_export')
     const rows = await db
       .select()
       .from(practitioners)
@@ -1059,6 +1066,7 @@ export const logEntriesExport = createServerFn({ method: 'POST' })
   .middleware([requireAdmin])
   .validator(z.object({ count: z.number().int().min(1).max(5000) }))
   .handler(async ({ data, context }) => {
+    await assertPermission(context.user, 'bulk_export')
     await logEvent({
       actor: context.identity,
       actorRole: ROLE_ADMIN,
