@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { db } from '../../db'
 import { accountRemovalRequests, authSessions, entryRequests, mfaSessions, settings, users } from '../../db/schema'
-import { requireAdmin, requireExamMod, requireExaminer, requireSuperAdmin } from './auth-server'
+import { requireAdmin, requireExamMod, requireExaminer, requireSuperAdmin, needs } from './auth-server'
 import { hashPassword } from './password'
 import { isWeakPassword } from './password-strength'
 import { findClash } from './practitioners-server'
@@ -208,7 +208,7 @@ export type ExaminerSubmitResult =
 
 /** Examiner: asks for a new entry (PESEL + screenshot). At most N requests per window, set by the owner. */
 export const submitExaminerRequest = createServerFn({ method: 'POST' })
-  .middleware([requireExaminer])
+  .middleware([requireExaminer, needs('requests.create')])
   .validator(z.object({ person: practitionerInput, proof: proofSchema }))
   .handler(async ({ data, context }): Promise<ExaminerSubmitResult> => {
     if (!(await readFlag(FLAG_KEYS.requests))) {
@@ -537,7 +537,7 @@ export const modOverview = createServerFn({ method: 'GET' })
 
 /** Moderator: adds an examiner account (the examiner must change the password at the first sign-in). */
 export const addExaminer = createServerFn({ method: 'POST' })
-  .middleware([requireExamMod])
+  .middleware([requireExamMod, needs('examiners.add')])
   .validator(z.object({ email: emailSchema, password: passwordSchema }))
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const limits = await readLimits()
@@ -565,7 +565,7 @@ async function examinerTarget(id: string) {
 
 /** Moderator: suspends an examiner for a number of hours (0 lifts the suspension). */
 export const suspendExaminer = createServerFn({ method: 'POST' })
-  .middleware([requireExamMod])
+  .middleware([requireExamMod, needs('examiners.suspend')])
   .validator(
     z.object({
       id: idSchema.shape.id,
@@ -615,7 +615,7 @@ export const suspendExaminer = createServerFn({ method: 'POST' })
 
 /** Moderator: asks an administrator to delete an examiner account. */
 export const requestExaminerRemoval = createServerFn({ method: 'POST' })
-  .middleware([requireExamMod])
+  .middleware([requireExamMod, needs('examiners.removal')])
   .validator(z.object({ id: idSchema.shape.id, reason: z.string().trim().min(5, 'Podaj powód (co najmniej 5 znaków)').max(500) }))
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const limits = await readLimits()
@@ -664,7 +664,7 @@ export type AdminExamStaff = {
 
 /** Admin: all examiner and moderator accounts and the removal requests. */
 export const adminExamStaff = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('examstaff.manage')])
   .handler(async (): Promise<AdminExamStaff> => {
     const accounts = await toAccounts(await examStaffRows([ROLE_EXAMINER, ROLE_EXAM_MOD]))
     const removals = await db
@@ -676,7 +676,7 @@ export const adminExamStaff = createServerFn({ method: 'GET' })
   })
 
 export const countPendingRemovals = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('examstaff.manage')])
   .handler(async () => {
     const [row] = await db
       .select({ n: sql<string>`count(*)` })
@@ -687,7 +687,7 @@ export const countPendingRemovals = createServerFn({ method: 'GET' })
 
 /** Admin: creates an examiner or a moderator account. */
 export const addExamStaff = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('examstaff.manage')])
   .validator(z.object({ email: emailSchema, password: passwordSchema, role: z.enum(['examiner', 'moderator']) }))
   .handler(async ({ data, context }) =>
     addExamAccount(
@@ -699,7 +699,7 @@ export const addExamStaff = createServerFn({ method: 'POST' })
 
 /** Admin: deletes an examiner or moderator account right away (no request needed). */
 export const deleteExamStaff = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('examstaff.manage')])
   .validator(idSchema)
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
@@ -714,7 +714,7 @@ export const deleteExamStaff = createServerFn({ method: 'POST' })
 
 /** Admin: approves (deletes the account) or rejects a moderator's removal request. */
 export const decideRemoval = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('examstaff.manage')])
   .validator(z.object({ id: z.number().int().positive(), decision: z.enum(['approve', 'reject']), note: z.string().trim().max(300).optional() }))
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const [claimed] = await db

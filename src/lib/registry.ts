@@ -111,6 +111,7 @@ export const AUDIT_ACTION_LABELS = {
   examiner_delete: 'Usunięto konto egzaminatora lub moderatora',
   examiner_limits: 'Zmiana limitów egzaminatorów',
   examiner_appeal: 'Odwołanie od zawieszenia konta',
+  permissions_change: 'Zmiana uprawnień lub adresów logowania',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS

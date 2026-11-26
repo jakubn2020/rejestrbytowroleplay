@@ -8,7 +8,7 @@ import { RequestStatusBadge } from '@/components/admin/requests-panels'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { EXAMINER_TIPS } from '@/lib/examiners'
+import { EXAMINER_TIPS, failureText } from '@/lib/examiners'
 import {
   examinerOverview,
   listMyExaminerRequests,
@@ -156,8 +156,8 @@ export function ExaminerView({ email }: { email: string }) {
       setProof(null)
       setProofName('')
       await reload()
-    } catch {
-      setError('Nie udało się wysłać wniosku.')
+    } catch (error) {
+      setError(failureText(error, 'Nie udało się wysłać wniosku.'))
     } finally {
       setPending(false)
     }

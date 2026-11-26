@@ -15,6 +15,7 @@ import {
   type ExamStaffAccount,
   type ModOverview,
 } from '@/lib/examiners.functions'
+import { failureText } from '@/lib/examiners'
 import { formatDateTime } from '@/lib/registry'
 
 export function randomPassword(): string {
@@ -73,8 +74,8 @@ export function ModeratorView() {
       setEmail('')
       setPassword('')
       await reload()
-    } catch {
-      toast.error('Nie udało się dodać konta.')
+    } catch (error) {
+      toast.error(failureText(error, 'Nie udało się dodać konta.'))
     } finally {
       setBusy(false)
     }
@@ -95,8 +96,8 @@ export function ModeratorView() {
       }
       toast.success(hours === 0 ? 'Zawieszenie zdjęte.' : 'Konto zawieszone.')
       await reload()
-    } catch {
-      toast.error('Nie udało się zmienić stanu konta.')
+    } catch (error) {
+      toast.error(failureText(error, 'Nie udało się zmienić stanu konta.'))
     }
   }
 
@@ -111,8 +112,8 @@ export function ModeratorView() {
       }
       toast.success('Wniosek wysłany do administratora.')
       await reload()
-    } catch {
-      toast.error('Nie udało się wysłać wniosku.')
+    } catch (error) {
+      toast.error(failureText(error, 'Nie udało się wysłać wniosku.'))
     }
   }
 

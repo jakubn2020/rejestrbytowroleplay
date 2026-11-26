@@ -2,6 +2,7 @@
 import { createMiddleware } from '@tanstack/react-start'
 
 import { ROLE_ADMIN, ROLE_EXAMINER, ROLE_EXAM_MOD, ROLE_MANAGEMENT, hasPanelRole } from './registry'
+import { assertPermission } from './permissions-server'
 import { getSessionUser } from './session-server'
 import { mfaSatisfied } from './security-server'
 
@@ -89,3 +90,16 @@ export const requireExamMod = createMiddleware({ type: 'function' }).server(
     return next({ context: { user, identity } })
   },
 )
+
+/**
+ * Add after a role middleware: the owner's permission switches decide whether this person may use the function.
+ * The role middleware still runs first, so a switch can only take something away (the owner is never limited).
+ */
+export const needs = (key: string) =>
+  createMiddleware({ type: 'function' }).server(async ({ next, context }) => {
+    const known = (context as unknown as { user?: Awaited<ReturnType<typeof getSessionUser>> }).user
+    const user = known ?? (await getSessionUser())
+    if (!user) throw new Error('Brak uprawnień')
+    await assertPermission(user, key)
+    return next()
+  })

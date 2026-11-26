@@ -124,3 +124,11 @@ Strona `/egzaminy` (przycisk „Egzaminy (beta)” w panelu właściciela). Wyk�
 - Zawieszenie: moderator podaje powód, który zawieszona osoba widzi przy próbie logowania razem z przyciskiem „Odwołaj się od zawieszenia”. Odwołanie widać przy koncie (moderator i administrator) i trafia e-mailem do administratorów. Zdjęcie zawieszenia czyści powód i odwołanie.
 - Właściciel może ustawić wyjątek od limitów dla jednej osoby (przycisk „Limity” przy koncie w panelu „Egzaminatorzy”).
 - Przy ustawianiu hasła widać miernik siły hasła z listą braków.
+
+## Uprawnienia (v3.8)
+
+- Centrum bezpieczeństwa → „Uprawnienia: kto co może” (tylko właściciel). Cztery zakładki: lista uprawnień ról (pola wyboru), osoby i wyjątki (tabela osoby × uprawnienia, wyjątek „zablokuj” lub „zezwól”, także do wybranej daty, oraz podgląd konta tylko do odczytu), adresy logowania ról i historia zmian z przyciskiem „Cofnij”.
+- Uprawnienie można wyłączyć roli lub osobie, ale nie nadać roli, która go domyślnie nie ma. Konto właściciela nie podlega ograniczeniom.
+- Sprawdzanie działa na serwerze (`needs('klucz')` po middleware roli), a panel dodatkowo chowa przyciski wyłączonych funkcji. Katalog uprawnień: `src/lib/permissions.ts`.
+- Dane trzymane są w tabeli `settings` (`perm_roles`, `perm_user_<id>`, `perm_history`, `ip_role_<rola>`), więc nie ma nowej migracji.
+- Przełączniki funkcji (Sterowanie stroną): zgłoszenia, wnioski, publiczna wyszukiwarka, weryfikacja QR, dołączanie do egzaminów.

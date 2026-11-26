@@ -106,6 +106,9 @@ export async function readSecuritySettings(): Promise<SecuritySettings> {
 export const FLAG_KEYS = {
   reports: 'flag_reports',
   requests: 'flag_requests',
+  search: 'flag_search',
+  verify: 'flag_verify',
+  exams: 'flag_exams',
   noticePublic: 'notice_public',
   noticePublicLevel: 'notice_public_level',
   noticeStaff: 'notice_staff',

@@ -2,6 +2,8 @@ import { createServerFn } from '@tanstack/react-start'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 
+import { FLAG_KEYS, readFlag } from './site-settings-server'
+
 import { db } from '../../db'
 import { examEvents, examParticipants, examQuestions, examSessions, exams } from '../../db/schema'
 import {
@@ -43,6 +45,7 @@ export type JoinResult =
 export const joinSession = createServerFn({ method: 'POST' })
   .validator(z.object({ token: sessionToken, login: z.string().trim().min(1).max(40) }))
   .handler(async ({ data }): Promise<JoinResult> => {
+    if (!(await readFlag(FLAG_KEYS.exams))) return { ok: false, error: 'Egzaminy są chwilowo wyłączone przez właściciela strony.' }
     const found = await sessionByToken(data.token)
     if (!found) return { ok: false, error: 'Ten link jest nieprawidłowy lub wygasł.' }
     if (phase(found.session) === 'finished') return { ok: false, error: 'Ten test już się zakończył.' }

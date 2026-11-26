@@ -7,4 +7,6 @@ export type AuthUser = {
   isSuperAdmin: boolean
   /** The owner forced a password change: the panel only offers that until it is done. */
   mustChangePassword: boolean
+  /** Permission keys the owner switched off for this person (the panel hides the matching buttons). */
+  denied?: string[]
 }

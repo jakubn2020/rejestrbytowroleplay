@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { db } from '../../db'
 import { reports } from '../../db/schema'
-import { requireAdmin } from './auth-server'
+import { requireAdmin, needs } from './auth-server'
 import { FLAG_KEYS, readFlag } from './site-settings-server'
 import {
   clientIp,
@@ -101,7 +101,7 @@ export const checkReportStatus = createServerFn({ method: 'POST' })
 
 /** Admin only: all reports, open ones first. */
 export const listReports = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('reports.manage')])
   .handler(async () => {
     const rows = await db
       .select()
@@ -123,7 +123,7 @@ export const listReports = createServerFn({ method: 'GET' })
 export type ReportRow = Awaited<ReturnType<typeof listReports>>[number]
 
 export const setReportStatus = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('reports.manage')])
   .validator(z.object({ id: z.number().int().positive(), status: z.enum(['open', 'done']) }))
   .handler(async ({ data, context }) => {
     await db
@@ -138,7 +138,7 @@ export const setReportStatus = createServerFn({ method: 'POST' })
   })
 
 export const deleteReport = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('reports.manage')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data }) => {
     await db.delete(reports).where(eq(reports.id, data.id))

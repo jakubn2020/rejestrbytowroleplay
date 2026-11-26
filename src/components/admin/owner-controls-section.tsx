@@ -64,7 +64,19 @@ export function OwnerControlsSection() {
         </label>
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={controls.requestsOpen} onChange={(e) => set({ requestsOpen: e.target.checked })} />
-          Pozwól kierownictwu składać wnioski (o wpis i o zmianę terminu)
+          Pozwól kierownictwu i egzaminatorom składać wnioski (o wpis i o zmianę terminu)
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={controls.searchOpen} onChange={(e) => set({ searchOpen: e.target.checked })} />
+          Publiczna wyszukiwarka osób na stronie głównej
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={controls.verifyOpen} onChange={(e) => set({ verifyOpen: e.target.checked })} />
+          Weryfikacja po kodzie QR z plakietki
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={controls.examsOpen} onChange={(e) => set({ examsOpen: e.target.checked })} />
+          Egzaminy: dołączanie uczniów przez link
         </label>
       </div>
       <Button size="sm" disabled={busy} onClick={() => void save()}>Zapisz sterowanie</Button>

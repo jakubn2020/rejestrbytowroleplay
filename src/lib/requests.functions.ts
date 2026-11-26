@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { db } from '../../db'
 import { entryRequests } from '../../db/schema'
-import { requireAdmin, requireStaff } from './auth-server'
+import { requireAdmin, requireStaff, needs } from './auth-server'
 import { findClash, insertPractitioner } from './practitioners-server'
 import {
   ROLE_ADMIN,
@@ -47,7 +47,7 @@ export const getCooldown = createServerFn({ method: 'GET' })
  * of the message in which the person says they want the entry; an admin decides.
  */
 export const submitRequest = createServerFn({ method: 'POST' })
-  .middleware([requireStaff])
+  .middleware([requireStaff, needs('requests.create')])
   .validator(submitInput)
   .handler(async ({ data, context }): Promise<SubmitResult> => {
     if (context.isAdmin) {
@@ -153,7 +153,7 @@ export const listMyRequests = createServerFn({ method: 'GET' })
 
 /** Admin only: all requests (without screenshots), newest first. */
 export const listRequests = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('requests.decide')])
   .handler(async (): Promise<RequestRow[]> => {
     const rows = await db
       .select()
@@ -164,7 +164,7 @@ export const listRequests = createServerFn({ method: 'GET' })
   })
 
 export const countPendingRequests = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('requests.decide')])
   .handler(async () => {
     const [row] = await db
       .select({ n: sql<string>`count(*)` })
@@ -175,7 +175,7 @@ export const countPendingRequests = createServerFn({ method: 'GET' })
 
 /** Admin only: the screenshot attached to one request. */
 export const getRequestProof = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('requests.decide')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data }) => {
     const [row] = await db
@@ -190,7 +190,7 @@ export type DecideResult = { ok: true } | { ok: false; error: string }
 
 /** Admin only: approves (creates the entry) or rejects a pending request. */
 export const decideRequest = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('requests.decide')])
   .validator(
     z.object({
       id: z.number().int().positive(),

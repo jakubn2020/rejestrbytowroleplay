@@ -18,6 +18,12 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.8',
+    date: '2026-11-26',
+    title: 'Uprawnienia i przełączniki',
+    changes: ['Ulepszenia i nowe funkcje dla obsługi strony.'],
+  },
+  {
     version: '3.7',
     date: '2026-11-24',
     title: 'Konta egzaminatorów',

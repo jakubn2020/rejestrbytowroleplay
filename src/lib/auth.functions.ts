@@ -19,7 +19,10 @@ import { isWeakPassword } from './password-strength'
 import { SEC_KEYS, readNumberSetting, readSetting, writeSetting } from './site-settings-server'
 import { userKey } from './examiners'
 import { hashPassword, verifyPassword } from './password'
-import { logEvent, notifyAdmins } from './security-server'
+import { logEvent, notifyAdmins, clientIp } from './security-server'
+import { deniedFor, roleIpKey } from './permissions-server'
+import { PERMISSION_ROLES } from './permissions'
+import { ipMatchesRule } from './ip-rules'
 import { ROLE_ADMIN, ROLE_MANAGEMENT, hasPanelRole } from './registry'
 
 /** Hash of a throwaway password, checked when the e-mail is unknown so timing does not reveal it. */
@@ -32,6 +35,24 @@ function parseJson(raw: string | null): Record<string, unknown> | null {
     return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
   } catch {
     return null
+  }
+}
+
+/** The owner may limit a role to some addresses; a person with several roles passes if any of them has no limit. */
+async function roleIpAllowed(roles: string[]): Promise<boolean> {
+  try {
+    const lists = await Promise.all(
+      PERMISSION_ROLES.filter((r) => roles.includes(r.role)).map(async (r) =>
+        ((await readSetting(roleIpKey(r.role))) ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean),
+      ),
+    )
+    if (lists.length === 0 || lists.some((list) => list.length === 0)) return true
+    const ip = clientIp()
+    if (!ip) return false
+    return lists.some((list) => list.some((rule) => ipMatchesRule(ip, rule)))
+  } catch (error) {
+    console.error('Nie udało się sprawdzić adresów dozwolonych dla roli', error)
+    return true
   }
 }
 
@@ -94,6 +115,7 @@ export const loginUser = createServerFn({ method: 'POST' })
         }
       }
       if ((await readNumberSetting(SEC_KEYS.lockdown, 0)) === 1) return { ok: false, reason: 'locked' }
+      if (!(await roleIpAllowed(row.roles))) return { ok: false, reason: 'blocked' }
       if (row.roles.includes(ROLE_ADMIN) && !(await panelIpAllowed())) {
         return { ok: false, reason: 'blocked' }
       }
@@ -114,6 +136,7 @@ export const loginUser = createServerFn({ method: 'POST' })
         roles: row.roles,
         isSuperAdmin: owner,
         mustChangePassword: row.mustChangePassword,
+        denied: await deniedFor({ id: row.id, roles: row.roles, isSuperAdmin: owner }),
       },
     }
   })
@@ -123,7 +146,8 @@ export const currentUser = createServerFn({ method: 'GET' }).handler(
   async (): Promise<AuthUser | null> => {
     const user = await getSessionUser()
     if (!user) return null
-    return hasPanelRole(user.roles) ? user : null
+    if (!hasPanelRole(user.roles)) return null
+    return { ...user, denied: await deniedFor(user) }
   },
 )
 

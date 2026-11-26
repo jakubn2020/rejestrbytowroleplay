@@ -66,3 +66,9 @@ export const userKey = {
   suspension: (id: string) => `susp_${id}`,
   appeal: (id: string) => `appeal_${id}`,
 }
+
+/** The reason to show for a failed call: the owner's "switched off" message is passed on, anything else is replaced. */
+export function failureText(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : ''
+  return message.startsWith('Właściciel wyłączył') ? message : fallback
+}

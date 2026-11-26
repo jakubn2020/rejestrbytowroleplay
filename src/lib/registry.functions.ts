@@ -26,7 +26,7 @@ import {
   users,
   type Practitioner,
 } from '../../db/schema'
-import { requireAdmin, requireStaff, requireSuperAdmin } from './auth-server'
+import { requireAdmin, requireStaff, requireSuperAdmin, needs } from './auth-server'
 import { superAdminEmail } from './session-server'
 import { hashPassword } from './password'
 import { isWeakPassword } from './password-strength'
@@ -59,7 +59,7 @@ import {
   recordEvent,
   trackTraffic,
 } from './security-server'
-import { readMaintenance } from './site-settings-server'
+import { FLAG_KEYS, readFlag, readMaintenance } from './site-settings-server'
 
 /** Rows that are not in the trash. */
 const alive = isNull(practitioners.deletedAt)
@@ -143,6 +143,9 @@ export const searchRegistry = createServerFn({ method: 'GET' })
   .handler(async ({ data }): Promise<SearchResult> => {
     const maintenance = await readMaintenance()
     if (maintenance.closed) return { status: 'invalid', message: maintenance.message }
+    if (!(await readFlag(FLAG_KEYS.search))) {
+      return { status: 'invalid', message: 'Wyszukiwarka jest chwilowo wyłączona. Spróbuj ponownie później.' }
+    }
     if (await ipBanned()) {
       return { status: 'invalid', message: 'Dostęp z tego adresu został zablokowany.' }
     }
@@ -201,7 +204,7 @@ export const searchRegistry = createServerFn({ method: 'GET' })
 // ---------------------------------------------------------------------------
 
 export const listPractitioners = createServerFn({ method: 'GET' })
-  .middleware([requireStaff])
+  .middleware([requireStaff, needs('registry.view')])
   .handler(async ({ context }) => {
     const rows = await db
       .select()
@@ -224,7 +227,7 @@ export const listPractitioners = createServerFn({ method: 'GET' })
 
 /** Staff only: shows one PESEL. Every call is written to the audit log. */
 export const revealPesel = createServerFn({ method: 'POST' })
-  .middleware([requireStaff])
+  .middleware([requireStaff, needs('pesel.reveal')])
   .validator(
     z.object({
       id: z.number().int().positive(),
@@ -297,7 +300,7 @@ export type AddResult = { ok: true; pwz: string } | { ok: false; error: string }
 
 /** Admin only: adds a person directly. `kierownictwo` submits a request instead (see requests.functions.ts). */
 export const addPractitioner = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.add')])
   .validator(practitionerInput)
   .handler(async ({ data, context }): Promise<AddResult> => {
     if (data.expiresAt && data.expiresAt <= new Date()) {
@@ -338,7 +341,7 @@ export type UpdateResult = { ok: true } | { ok: false; error: string }
 
 /** Admin only: change PESEL, set PWZ by hand, edit the specialization and the status of an existing entry. */
 export const updatePractitioner = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.edit')])
   .validator(updateInput)
   .handler(async ({ data, context }): Promise<UpdateResult> => {
     const [existing] = await db
@@ -452,7 +455,7 @@ export const updatePractitioner = createServerFn({ method: 'POST' })
 
 /** Admin only: moves an entry to the trash (it can be restored for TRASH_RETENTION_DAYS days). */
 export const deletePractitioner = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.trash')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
     const [existing] = await db
@@ -495,7 +498,7 @@ export const deletePractitioner = createServerFn({ method: 'POST' })
 
 /** Staff only: everything printed on a badge (including the PESEL). */
 export const getBadge = createServerFn({ method: 'GET' })
-  .middleware([requireStaff])
+  .middleware([requireStaff, needs('badges.view')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
     const [row] = await db
@@ -545,6 +548,9 @@ export const verifyEntry = createServerFn({ method: 'GET' })
     if (maintenance.closed) {
       return { status: 'closed', pwz: data.pwz, message: maintenance.message }
     }
+    if (!(await readFlag(FLAG_KEYS.verify))) {
+      return { status: 'closed', pwz: data.pwz, message: 'Weryfikacja kodów QR jest chwilowo wyłączona.' }
+    }
     if (await ipBanned()) return { status: 'limited', pwz: data.pwz }
     await trackTraffic()
     if (!(await lookupAllowed())) return { status: 'limited', pwz: data.pwz }
@@ -576,7 +582,7 @@ export const verifyEntry = createServerFn({ method: 'GET' })
 
 /** Admin only: entries in the trash. Entries older than the retention period are purged first. */
 export const listTrash = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.trash')])
   .handler(async () => {
     await db
       .delete(practitioners)
@@ -610,7 +616,7 @@ export const listTrash = createServerFn({ method: 'GET' })
   })
 
 export const restorePractitioner = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.trash')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
     const [existing] = await db
@@ -634,7 +640,7 @@ export const restorePractitioner = createServerFn({ method: 'POST' })
 
 /** Permanently deletes an entry that is already in the trash. */
 export const purgePractitioner = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.trash')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
     const [existing] = await db
@@ -659,7 +665,7 @@ export const purgePractitioner = createServerFn({ method: 'POST' })
 
 /** Admin only: the audit log, newest first. */
 export const listAuditLog = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('audit.view')])
   .handler(async () => {
     const rows = await db
       .select()
@@ -836,14 +842,14 @@ const accountInput = z.object({ email: emailSchema, password: passwordSchema })
 // --- kierownictwo (any admin) ---------------------------------------------
 
 export const listManagement = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('accounts.management')])
   .handler(async () => listAccounts(ROLE_MANAGEMENT))
 
 export type DeleteManagementResult = { ok: true } | { ok: false; error: string }
 
 /** Admin only: permanently deletes a `kierownictwo` account. Admin accounts are refused. */
 export const deleteManagement = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('accounts.management')])
   .validator(idInput)
   .handler(
     async ({ data, context }): Promise<DeleteManagementResult> =>
@@ -854,7 +860,7 @@ export type SetPasswordResult = { ok: true } | { ok: false; error: string }
 
 /** Admin only: sets a new password for a `kierownictwo` account (admin accounts are refused). */
 export const setManagementPassword = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('accounts.management')])
   .validator(z.object({ id: idInput.shape.id, password: passwordSchema }))
   .handler(
     async ({ data, context }): Promise<SetPasswordResult> =>
@@ -865,7 +871,7 @@ export type AddManagementResult = AddAccountResult
 
 /** Admin only: creates an account that has the `kierownictwo` role. */
 export const addManagement = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('accounts.management')])
   .validator(accountInput)
   .handler(
     async ({ data, context }): Promise<AddManagementResult> =>
@@ -912,7 +918,7 @@ export const setAdminPassword = createServerFn({ method: 'POST' })
 
 /** Admin only: the latest changes of one entry (newest first). */
 export const entryHistory = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.edit')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data }) => {
     const rows = await db
@@ -931,7 +937,7 @@ export const entryHistory = createServerFn({ method: 'GET' })
 
 /** Admin only: restores the entry to how it was before its latest change. */
 export const undoEntryChange = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.edit')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }): Promise<UpdateResult> => {
     const [existing] = await db
@@ -994,7 +1000,7 @@ const bulkInput = z.object({
 
 /** Admin only: one action on many entries (status, validity or the trash). */
 export const bulkUpdateEntries = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.bulk')])
   .validator(bulkInput)
   .handler(async ({ data, context }) => {
     const rows = await db
@@ -1056,7 +1062,7 @@ export const bulkUpdateEntries = createServerFn({ method: 'POST' })
 
 /** Admin only: writes an export of entries to the audit log (the file itself is built in the browser). */
 export const logEntriesExport = createServerFn({ method: 'POST' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('entries.export')])
   .validator(z.object({ count: z.number().int().min(1).max(5000) }))
   .handler(async ({ data, context }) => {
     await logEvent({

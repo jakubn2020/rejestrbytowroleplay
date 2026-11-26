@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { db } from '../../db'
 import { auditLog, entryRequests, expiryRequests } from '../../db/schema'
-import { requireAdmin } from './auth-server'
+import { requireAdmin, needs } from './auth-server'
 import { requireStaff } from './auth-server'
 import { ROLE_MANAGEMENT, managementBadge } from './registry'
 
@@ -48,7 +48,7 @@ export const getMyBadge = createServerFn({ method: 'GET' })
 
 /** Admin only: how active each kierownictwo account was in the last 7, 30 or 90 days. */
 export const getManagementActivity = createServerFn({ method: 'GET' })
-  .middleware([requireAdmin])
+  .middleware([requireAdmin, needs('audit.view')])
   .validator(z.object({ days: z.union([z.literal(7), z.literal(30), z.literal(90)]) }))
   .handler(async ({ data }): Promise<ManagementActivityRow[]> => {
     const since = new Date(Date.now() - data.days * 86_400_000)

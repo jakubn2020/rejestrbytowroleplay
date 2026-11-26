@@ -574,6 +574,8 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
   const isAdmin = user.roles?.includes(ROLE_ADMIN) ?? false
   const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
+  /** False when the owner switched this permission off for this account (the buttons are hidden). */
+  const can = (key: string) => !(user.denied ?? []).includes(key)
   const canAdd = isAdmin || isManagement
   useEffect(() => {
     if (isManagement && !isAdmin && !onboardingSeen(user.email)) setTutorialOpen(true)
@@ -838,6 +840,8 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
       {isAdmin && (
         <div className="flex flex-wrap gap-2">
+{can('accounts.management') && (
+<>
           <Button variant="outline" onClick={() => setManagementOpen(true)}>
             <UserCog className="size-4" /> Dodaj kierownictwo
           </Button>
@@ -847,12 +851,16 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           >
             <Users className="size-4" /> Konta kierownictwa
           </Button>
+</>
+)}
+{can('examstaff.manage') && (
           <Button
             variant={showExamStaff ? 'default' : 'outline'}
             onClick={() => setShowExamStaff((open) => !open)}
           >
             <Users className="size-4" /> Egzaminatorzy
           </Button>
+)}
           {user.isSuperAdmin && (
             <>
               <Button variant="outline" onClick={() => setAdminDialogOpen(true)}>
@@ -875,6 +883,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
               </Button>
             </>
           )}
+{can('requests.decide') && (
           <Button
             className="relative"
             variant={showRequests ? 'default' : 'outline'}
@@ -883,6 +892,8 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
             <Inbox className="size-4" /> Wnioski
             <CountBadge count={counts.requests} />
           </Button>
+)}
+{can('reports.manage') && (
           <Button
             className="relative"
             variant={showReports ? 'default' : 'outline'}
@@ -891,6 +902,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
             <Flag className="size-4" /> Zgłoszenia
             <CountBadge count={counts.reports} />
           </Button>
+)}
           <Button
             className="relative"
             variant={showAlerts ? 'default' : 'outline'}
@@ -913,18 +925,22 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           >
             <BarChart3 className="size-4" /> Statystyki
           </Button>
+{can('entries.trash') && (
           <Button
             variant={showTrash ? 'default' : 'outline'}
             onClick={() => setShowTrash((open) => !open)}
           >
             <Trash2 className="size-4" /> Kosz
           </Button>
+)}
+{can('audit.view') && (
           <Button
             variant={showLog ? 'default' : 'outline'}
             onClick={() => setShowLog((open) => !open)}
           >
             <ScrollText className="size-4" /> Dziennik zdarzeń
           </Button>
+)}
         </div>
       )}
       {isAdmin && showManagement && (

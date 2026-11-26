@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { BrandingSection } from '@/components/admin/branding-section'
+import { PermissionsSection } from '@/components/admin/permissions-section'
 import { ExaminerLimitsSection } from '@/components/admin/examiner-limits-section'
 import { OwnerControlsSection } from '@/components/admin/owner-controls-section'
 import { Button } from '@/components/ui/button'
@@ -140,6 +141,7 @@ export function SecurityDataTab() {
     <div className="space-y-6">
       <OwnerControlsSection />
       <ExaminerLimitsSection />
+      <PermissionsSection />
       <BrandingSection />
       <div className="space-y-4 rounded-md border p-4">
         <h3 className="text-sm font-semibold">Ustawienia (suwaki)</h3>
