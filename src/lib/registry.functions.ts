@@ -29,6 +29,7 @@ import {
 import { requireAdmin, requireStaff, requireSuperAdmin, needs } from './auth-server'
 import { superAdminEmail } from './session-server'
 import { hashPassword } from './password'
+import { newPasswordSchema } from './password-schema'
 import { isWeakPassword } from './password-strength'
 import { insertPractitioner, purgeTrashedClash } from './practitioners-server'
 import {
@@ -688,10 +689,7 @@ export const listAuditLog = createServerFn({ method: 'GET' })
 // Staff accounts: kierownictwo (any admin) and admin (owner account only)
 // ---------------------------------------------------------------------------
 
-const passwordSchema = z
-  .string()
-  .min(8, 'Hasło musi mieć co najmniej 8 znaków')
-  .max(200)
+const passwordSchema = newPasswordSchema
 
 const emailSchema = z
   .string()

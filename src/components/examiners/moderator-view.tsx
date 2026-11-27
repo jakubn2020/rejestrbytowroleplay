@@ -139,7 +139,7 @@ export function ModeratorView() {
           <div className="space-y-2">
             <Label htmlFor="mod-password">Hasło początkowe</Label>
             <div className="flex gap-2">
-              <Input id="mod-password" required minLength={8} maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
+              <Input id="mod-password" required minLength={10} maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
               <Button type="button" variant="outline" onClick={() => setPassword(randomPassword())}>Losuj</Button>
             </div>
             <PasswordStrengthMeter password={password} email={email} />

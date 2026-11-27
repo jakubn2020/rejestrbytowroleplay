@@ -68,6 +68,12 @@ import {
   type EntryStatus,
 } from '@/lib/registry'
 import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULES_ERROR,
+  PASSWORD_RULES_TEXT,
+  meetsPasswordPolicy,
+} from '@/lib/password-strength'
+import {
   addAdmin,
   addManagement,
   addPractitioner,
@@ -246,8 +252,8 @@ function ForcedPasswordChange({ onDone, onLogout }: { onDone: () => void; onLogo
     event.preventDefault()
     const fields = new FormData(event.currentTarget)
     const password = String(fields.get('password'))
-    if (password.length < 8) {
-      setError('Hasło musi mieć co najmniej 8 znaków.')
+    if (!meetsPasswordPolicy(password)) {
+      setError(PASSWORD_RULES_ERROR)
       return
     }
     if (password !== String(fields.get('confirm'))) {
@@ -287,7 +293,8 @@ function ForcedPasswordChange({ onDone, onLogout }: { onDone: () => void; onLogo
           </div>
           <div className="space-y-2">
             <Label htmlFor="forced-new">Nowe hasło</Label>
-            <Input id="forced-new" name="password" type="password" autoComplete="new-password" required />
+            <Input id="forced-new" name="password" type="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} required />
+            <p className="text-xs text-muted-foreground">{PASSWORD_RULES_TEXT}</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="forced-confirm">Powtórz nowe hasło</Label>
@@ -1650,10 +1657,10 @@ function ManagementDialog({
               name="password"
               type="password"
               autoComplete="new-password"
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               required
             />
-            <p className="text-xs text-muted-foreground">Co najmniej 8 znaków.</p>
+            <p className="text-xs text-muted-foreground">{PASSWORD_RULES_TEXT}</p>
           </div>
           {error && (
             <p role="alert" className="text-sm text-destructive">

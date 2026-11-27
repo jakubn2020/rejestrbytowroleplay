@@ -49,6 +49,33 @@ export async function panelIpAllowed(ip: string | null = clientIp()): Promise<bo
   }
 }
 
+/**
+ * Permanent block of an address: it stays blocked until the owner removes the rule by hand
+ * (security centre → "Adresy IP i ruch"). Replaces a temporary ban of the same address.
+ * Returns false when the address was already locked permanently.
+ */
+export async function lockIp(ip: string, reason: string): Promise<boolean> {
+  try {
+    const rules = await activeRules('block')
+    if (rules.some((rule) => rule.rule === ip && rule.expiresAt === null)) return false
+    await db
+      .delete(ipRules)
+      .where(and(eq(ipRules.kind, 'block'), eq(ipRules.rule, ip), eq(ipRules.auto, true)))
+    await db.insert(ipRules).values({
+      kind: 'block',
+      rule: ip,
+      reason,
+      createdBy: 'automat',
+      expiresAt: null,
+      auto: true,
+    })
+    return true
+  } catch (error) {
+    console.error('Nie udało się trwale zablokować adresu', error)
+    return false
+  }
+}
+
 /** Temporary ban of an address (minutes); an existing active ban for the same address is kept. */
 export async function autoBan(ip: string, minutes: number, reason: string): Promise<void> {
   try {

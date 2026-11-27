@@ -15,6 +15,7 @@ import {
 } from './session-server'
 import { ipBanned, panelIpAllowed } from './ip-policy-server'
 import { loginBlocked, registerLoginFailure } from './login-guard-server'
+import { newPasswordSchema } from './password-schema'
 import { isWeakPassword } from './password-strength'
 import { SEC_KEYS, readNumberSetting, readSetting, writeSetting } from './site-settings-server'
 import { userKey } from './examiners'
@@ -163,7 +164,7 @@ export const changeOwnPassword = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       currentPassword: z.string().min(1).max(200),
-      newPassword: z.string().min(8, 'Hasło musi mieć co najmniej 8 znaków').max(200),
+      newPassword: newPasswordSchema,
     }),
   )
   .handler(async ({ data }): Promise<ChangeOwnPasswordResult> => {

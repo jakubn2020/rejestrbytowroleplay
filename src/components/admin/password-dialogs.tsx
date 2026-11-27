@@ -14,6 +14,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PasswordStrengthMeter } from '@/components/password-strength-meter'
 import { changeOwnPassword } from '@/lib/auth.functions'
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULES_ERROR,
+  PASSWORD_RULES_TEXT,
+  meetsPasswordPolicy,
+} from '@/lib/password-strength'
 import { setAdminPassword, setManagementPassword } from '@/lib/registry.functions'
 
 /** Lets any signed-in user change their own password. */
@@ -41,8 +47,8 @@ export function ChangePasswordDialog({
     const fields = new FormData(form)
     const password = String(fields.get('password'))
     const currentPassword = String(fields.get('current'))
-    if (password.length < 8) {
-      setError('Hasło musi mieć co najmniej 8 znaków.')
+    if (!meetsPasswordPolicy(password)) {
+      setError(PASSWORD_RULES_ERROR)
       return
     }
     if (password !== String(fields.get('confirm'))) {
@@ -75,7 +81,7 @@ export function ChangePasswordDialog({
         <DialogHeader>
           <DialogTitle>Zmień hasło</DialogTitle>
           <DialogDescription>
-            Ustaw nowe hasło do swojego konta (co najmniej 8 znaków).
+            Ustaw nowe hasło do swojego konta. {PASSWORD_RULES_TEXT}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
@@ -96,7 +102,7 @@ export function ChangePasswordDialog({
               name="password"
               type="password"
               autoComplete="new-password"
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               required
               onChange={(e) => setNewPassword(e.target.value)}
             />
@@ -109,7 +115,7 @@ export function ChangePasswordDialog({
               name="confirm"
               type="password"
               autoComplete="new-password"
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               required
             />
           </div>
@@ -156,8 +162,8 @@ export function ResetManagementPasswordDialog({
     if (!target) return
     const form = event.currentTarget
     const password = String(new FormData(form).get('password'))
-    if (password.length < 8) {
-      setError('Hasło musi mieć co najmniej 8 znaków.')
+    if (!meetsPasswordPolicy(password)) {
+      setError(PASSWORD_RULES_ERROR)
       return
     }
     setPending(true)
@@ -200,7 +206,7 @@ export function ResetManagementPasswordDialog({
               name="password"
               type="password"
               autoComplete="new-password"
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               required
             />
           </div>

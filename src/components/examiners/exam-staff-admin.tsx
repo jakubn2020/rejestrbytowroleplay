@@ -196,7 +196,7 @@ export function ExamStaffAdmin({ isOwner = false, onChanged }: { isOwner?: boole
           <div className="space-y-2">
             <Label htmlFor="adm-ex-password">Hasło początkowe</Label>
             <div className="flex gap-2">
-              <Input id="adm-ex-password" required minLength={8} maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
+              <Input id="adm-ex-password" required minLength={10} maxLength={200} value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
               <Button type="button" variant="outline" onClick={() => setPassword(randomPassword())}>Losuj</Button>
             </div>
             <PasswordStrengthMeter password={password} email={email} />

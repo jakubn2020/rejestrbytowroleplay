@@ -5,6 +5,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { NotFoundPage } from '@/components/error-pages'
 import { CookieNotice } from '@/components/cookie-notice'
 import { PageTransition, SiteFooter, SiteHeader } from '@/components/site-chrome'
+import { IP_BLOCKED_MESSAGE } from '@/lib/access'
+import { checkAccess } from '@/lib/access.functions'
 
 import '../styles.css'
 
@@ -14,6 +16,13 @@ const siteDescription =
   'Wyszukiwarka osób wykonujących zawody medyczne (strona fikcyjna na potrzeby roleplayu)'
 
 export const Route = createRootRoute({
+  // A blocked address gets no page at all: throwing here stops every child loader, so no data is rendered.
+  // Checked on the server (every full page load); the server functions guard themselves as well.
+  beforeLoad: async () => {
+    if (typeof document !== 'undefined') return
+    const access = await checkAccess()
+    if (access.blocked) throw new Error(IP_BLOCKED_MESSAGE)
+  },
   head: () => ({
     meta: [
       {

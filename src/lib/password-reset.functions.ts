@@ -6,6 +6,7 @@ import { db } from '../../db'
 import { authSessions, mfaSessions, passwordResets, users } from '../../db/schema'
 import { ipBanned } from './ip-policy-server'
 import { hashPassword } from './password'
+import { newPasswordSchema } from './password-schema'
 import { isWeakPassword } from './password-strength'
 import { ROLE_ADMIN, ROLE_MANAGEMENT } from './registry'
 import { logEvent, recordEvent, sha256 } from './security-server'
@@ -17,7 +18,7 @@ export const consumePasswordReset = createServerFn({ method: 'POST' })
   .validator(
     z.object({
       token: z.string().regex(/^[0-9a-f]{64}$/),
-      password: z.string().min(8, 'Hasło musi mieć co najmniej 8 znaków').max(200),
+      password: newPasswordSchema,
     }),
   )
   .handler(async ({ data }): Promise<ResetResult> => {

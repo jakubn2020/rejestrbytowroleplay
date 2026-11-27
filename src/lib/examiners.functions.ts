@@ -6,6 +6,7 @@ import { db } from '../../db'
 import { accountRemovalRequests, authSessions, entryRequests, mfaSessions, settings, users } from '../../db/schema'
 import { requireAdmin, requireExamMod, requireExaminer, requireSuperAdmin, needs } from './auth-server'
 import { hashPassword } from './password'
+import { newPasswordSchema } from './password-schema'
 import { isWeakPassword } from './password-strength'
 import { findClash } from './practitioners-server'
 import {
@@ -322,7 +323,7 @@ export const listMyExaminerRequests = createServerFn({ method: 'GET' })
 // ---------------------------------------------------------------------------
 
 const emailSchema = z.string().trim().toLowerCase().email('Podaj poprawny adres e-mail').max(200)
-const passwordSchema = z.string().min(8, 'Hasło musi mieć co najmniej 8 znaków').max(200)
+const passwordSchema = newPasswordSchema
 const idSchema = z.object({ id: z.string().min(1).max(100) })
 
 export type ExamStaffAccount = {

@@ -1,0 +1,219 @@
+import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { DISCORD_ID_PATTERN, type DiscordConfig, type DiscordPerson } from '@/lib/discord-config'
+import {
+  getDiscordSettings,
+  saveDiscordSettings,
+  testDiscordWebhook,
+  type DiscordSettings,
+} from '@/lib/discord.functions'
+
+const SEVERITY_LABEL = { critical: 'krytyczne', high: 'wysokie', medium: 'średnie', low: 'niskie' } as const
+
+/**
+ * Owner only: alerts on Discord (webhook). Choose which alerts are sent and who gets pinged for each one;
+ * extra people can be added by hand (they need their numeric Discord user id).
+ */
+export function DiscordAlertsSection() {
+  const [settings, setSettings] = useState<DiscordSettings | null>(null)
+  const [config, setConfig] = useState<DiscordConfig | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+  const [newId, setNewId] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      const loaded = await getDiscordSettings()
+      setSettings(loaded)
+      setConfig(loaded.config)
+    } catch {
+      toast.error('Nie udało się wczytać ustawień Discorda.')
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (!settings || !config) return null
+
+  const update = (patch: Partial<DiscordConfig>) => setConfig({ ...config, ...patch })
+  const setPerson = (id: string, patch: Partial<DiscordPerson>) =>
+    update({ people: config.people.map((p) => (p.id === id ? { ...p, ...patch } : p)) })
+
+  function togglePing(kind: string, personId: string, on: boolean) {
+    if (!config) return
+    const rule = config.kinds[kind] ?? { send: false, ping: [] }
+    const ping = on ? [...new Set([...rule.ping, personId])] : rule.ping.filter((id) => id !== personId)
+    setConfig({ ...config, kinds: { ...config.kinds, [kind]: { ...rule, ping } } })
+  }
+
+  function setSend(kind: string, send: boolean) {
+    if (!config) return
+    const rule = config.kinds[kind] ?? { send: false, ping: [] }
+    setConfig({ ...config, kinds: { ...config.kinds, [kind]: { ...rule, send } } })
+  }
+
+  function addPerson() {
+    const label = newLabel.trim()
+    const discordId = newId.trim()
+    if (!label) return toast.error('Podaj nazwę osoby.')
+    if (discordId && !DISCORD_ID_PATTERN.test(discordId)) {
+      return toast.error('ID Discorda to ciąg cyfr (15–25 znaków).')
+    }
+    const id = `p${Date.now().toString(36)}`
+    update({ people: [...config!.people, { id, label, discordId, enabled: true }] })
+    setNewLabel('')
+    setNewId('')
+  }
+
+  function removePerson(id: string) {
+    update({
+      people: config!.people.filter((p) => p.id !== id),
+      kinds: Object.fromEntries(
+        Object.entries(config!.kinds).map(([kind, rule]) => [kind, { ...rule, ping: rule.ping.filter((p) => p !== id) }]),
+      ),
+    })
+  }
+
+  async function save() {
+    if (!config) return
+    setBusy(true)
+    try {
+      const result = await saveDiscordSettings({ data: config })
+      if (result.ok) toast.success('Zapisano ustawienia Discorda.')
+      else toast.error(result.error)
+    } catch {
+      toast.error('Nie udało się zapisać. Sprawdź, czy ID Discorda są poprawnymi ciągami cyfr.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function test() {
+    setBusy(true)
+    try {
+      const result = await testDiscordWebhook()
+      if (result.ok) toast.success('Wiadomość próbna wysłana na Discorda.')
+      else toast.error(result.error ?? 'Nie udało się wysłać wiadomości próbnej.')
+    } catch {
+      toast.error('Nie udało się wysłać wiadomości próbnej.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4 rounded-md border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Powiadomienia na Discordzie</h3>
+        <span
+          className={`rounded px-2 py-0.5 text-xs ring-1 ${settings.webhookConfigured ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-red-50 text-red-800 ring-red-200'}`}
+        >
+          {settings.webhookConfigured ? 'Webhook skonfigurowany' : 'Brak webhooka (DISCORD_WEBHOOK_URL)'}
+        </span>
+      </div>
+      {!settings.webhookConfigured && (
+        <p className="text-xs text-muted-foreground">
+          Utwórz webhook na kanale Discorda (Ustawienia kanału → Integracje → Webhooki) i wklej jego adres do zmiennej
+          środowiskowej <code>DISCORD_WEBHOOK_URL</code> w hostingu. Adres jest tajny, dlatego nie jest zapisywany w panelu.
+        </p>
+      )}
+
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={config.enabled} onChange={(e) => update({ enabled: e.target.checked })} />
+        Wysyłaj alerty bezpieczeństwa na Discorda
+      </label>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Osoby pingowane</p>
+        <p className="text-xs text-muted-foreground">
+          Discord pinguje po numerycznym ID, a nie po nazwie (Ustawienia Discorda → Zaawansowane → Tryb dewelopera, potem
+          prawy przycisk na użytkowniku → „Kopiuj ID użytkownika”). Bez ID osoba nie zostanie oznaczona.
+        </p>
+        <ul className="space-y-2">
+          {config.people.map((person) => {
+            const idOk = DISCORD_ID_PATTERN.test(person.discordId)
+            return (
+              <li key={person.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={person.enabled} onChange={(e) => setPerson(person.id, { enabled: e.target.checked })} />
+                  <span className="font-medium">{person.label}</span>
+                </label>
+                <Input
+                  aria-label={`ID Discorda: ${person.label}`}
+                  className="h-8 w-52 font-mono text-xs"
+                  inputMode="numeric"
+                  maxLength={25}
+                  placeholder="ID Discorda (cyfry)"
+                  value={person.discordId}
+                  onChange={(e) => setPerson(person.id, { discordId: e.target.value.replace(/\s/g, '') })}
+                />
+                {!idOk && <span className="text-xs text-amber-700">brak ID: nie będzie oznaczana</span>}
+                <Button size="sm" variant="ghost" onClick={() => removePerson(person.id)}>Usuń</Button>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input aria-label="Nazwa nowej osoby" className="h-8 w-40" maxLength={50} placeholder="Nazwa osoby" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
+          <Input aria-label="ID Discorda nowej osoby" className="h-8 w-52 font-mono text-xs" inputMode="numeric" maxLength={25} placeholder="ID Discorda (cyfry)" value={newId} onChange={(e) => setNewId(e.target.value.replace(/\s/g, ''))} />
+          <Button size="sm" variant="outline" onClick={addPerson}>Dodaj osobę</Button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Które alerty i kogo pingować</p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-left text-xs">
+            <thead>
+              <tr className="border-b text-muted-foreground">
+                <th className="py-1 pr-2 font-medium">Alert</th>
+                <th className="px-2 font-medium">Wyślij</th>
+                {config.people.map((p) => (
+                  <th key={p.id} className="px-2 font-medium">Ping: {p.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {settings.kinds.map(({ kind, label, severity }) => {
+                const rule = config.kinds[kind] ?? { send: false, ping: [] }
+                return (
+                  <tr key={kind} className="border-b last:border-0">
+                    <td className="py-1.5 pr-2">
+                      {label} <span className="text-muted-foreground">({SEVERITY_LABEL[severity]})</span>
+                    </td>
+                    <td className="px-2">
+                      <input type="checkbox" aria-label={`Wysyłaj: ${label}`} checked={rule.send} onChange={(e) => setSend(kind, e.target.checked)} />
+                    </td>
+                    {config.people.map((p) => (
+                      <td key={p.id} className="px-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Pinguj ${p.label}: ${label}`}
+                          checked={rule.ping.includes(p.id)}
+                          disabled={!rule.send}
+                          onChange={(e) => togglePing(kind, p.id, e.target.checked)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" disabled={busy} onClick={() => void save()}>Zapisz ustawienia Discorda</Button>
+        <Button size="sm" variant="outline" disabled={busy || !settings.webhookConfigured} onClick={() => void test()}>
+          Wyślij wiadomość próbną
+        </Button>
+      </div>
+    </div>
+  )
+}
