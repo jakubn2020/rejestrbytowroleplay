@@ -5,6 +5,10 @@ import { z } from 'zod'
 import { db } from '../../db'
 import { accountRemovalRequests, authSessions, entryRequests, mfaSessions, settings, users } from '../../db/schema'
 import { requireAdmin, requireExamMod, requireExaminer, requireSuperAdmin, needs } from './auth-server'
+import { PERMISSIONS, resolvePermission, type Resolution } from './permissions'
+import { PERM_ROLES_KEY, parseDenials, parseExceptions, permUserKey } from './permissions-server'
+import { applyPersonExceptions } from './person-permissions-server'
+import { isSuperAdmin } from './session-server'
 import { hashPassword } from './password'
 import { newPasswordSchema } from './password-schema'
 import { isWeakPassword } from './password-strength'
@@ -96,9 +100,9 @@ export const saveExaminerLimits = createServerFn({ method: 'POST' })
     return { ok: true as const }
   })
 
-/** Owner only: limits for one person (an exception to the general limits); `null` removes the exception. */
+/** Admin: limits for one examiner or moderator (an exception to the general limits); `null` removes the exception. */
 export const setExaminerOverride = createServerFn({ method: 'POST' })
-  .middleware([requireSuperAdmin])
+  .middleware([requireAdmin, needs('examstaff.manage')])
   .validator(
     z.object({
       id: z.string().min(1).max(100),
@@ -113,7 +117,7 @@ export const setExaminerOverride = createServerFn({ method: 'POST' })
   )
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
-    if (!row || !(row.roles.includes(ROLE_EXAMINER) || row.roles.includes(ROLE_EXAM_MOD))) {
+    if (!row || !isExamStaffRow(row)) {
       return { ok: false, error: 'To nie jest konto egzaminatora ani moderatora.' }
     }
     const clean = data.override ? Object.fromEntries(Object.entries(data.override).filter(([, v]) => v !== undefined)) : null
@@ -428,6 +432,60 @@ async function signOutEverywhere(user: { id: string; email: string }) {
   await db.delete(mfaSessions).where(eq(mfaSessions.identity, user.email.toLowerCase()))
 }
 
+/** An examiner or moderator account: never an admin, kierownictwo or the owner. */
+function isExamStaffRow(row: { email: string; roles: string[] }): boolean {
+  return (
+    (row.roles.includes(ROLE_EXAMINER) || row.roles.includes(ROLE_EXAM_MOD)) &&
+    !row.roles.includes(ROLE_ADMIN) &&
+    !row.roles.includes(ROLE_MANAGEMENT) &&
+    !isSuperAdmin(row.email, row.roles)
+  )
+}
+
+async function examStaffTarget(id: string) {
+  const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1)
+  return row && isExamStaffRow(row) ? row : null
+}
+
+/** Suspends (hours > 0) or reactivates (0) an account, signs it out and tells the person. Shared by moderators and admins. */
+async function applySuspension(
+  target: { id: string; email: string },
+  hours: number,
+  reason: string | undefined,
+  actor: { identity: string; role: string; label: string },
+) {
+  if (hours === 0) {
+    await db.update(users).set({ frozenUntil: null }).where(eq(users.id, target.id))
+    await clearSetting(userKey.suspension(target.id))
+    await clearSetting(userKey.appeal(target.id))
+  } else {
+    await writeSetting(
+      userKey.suspension(target.id),
+      JSON.stringify({ reason: reason ?? '', by: actor.identity, at: new Date().toISOString() }),
+    )
+    await clearSetting(userKey.appeal(target.id))
+    await db
+      .update(users)
+      .set({ frozenUntil: sql`now() + (${hours} * interval '1 hour')` })
+      .where(eq(users.id, target.id))
+    await signOutEverywhere(target)
+  }
+  await logEvent({
+    actor: actor.identity,
+    actorRole: actor.role,
+    action: 'examiner_suspend',
+    target: target.email,
+    details: hours === 0 ? 'Zawieszenie zdjęte' : `Zawieszono na ${hours} godz.${reason ? `, powód: ${reason}` : ''}`,
+  })
+  await notifyUser(
+    target.email,
+    hours === 0 ? 'Konto odwieszone' : 'Konto zawieszone',
+    hours === 0
+      ? 'Zawieszenie Twojego konta zostało zdjęte.'
+      : `Twoje konto zostało zawieszone na ${hours} godz. przez ${actor.label}.${reason ? ` Powód: ${reason}` : ''}`,
+  )
+}
+
 async function addExamAccount(
   input: { email: string; password: string },
   role: string,
@@ -581,36 +639,7 @@ export const suspendExaminer = createServerFn({ method: 'POST' })
     }
     const target = await examinerTarget(data.id)
     if (!target) return { ok: false, error: 'To konto nie jest kontem egzaminatora.' }
-    if (data.hours === 0) {
-      await db.update(users).set({ frozenUntil: null }).where(eq(users.id, target.id))
-      await clearSetting(userKey.suspension(target.id))
-      await clearSetting(userKey.appeal(target.id))
-    } else {
-      await writeSetting(
-        userKey.suspension(target.id),
-        JSON.stringify({ reason: data.reason ?? '', by: context.identity, at: new Date().toISOString() }),
-      )
-      await clearSetting(userKey.appeal(target.id))
-      await db
-        .update(users)
-        .set({ frozenUntil: sql`now() + (${data.hours} * interval '1 hour')` })
-        .where(eq(users.id, target.id))
-      await signOutEverywhere(target)
-    }
-    await logEvent({
-      actor: context.identity,
-      actorRole: ROLE_EXAM_MOD,
-      action: 'examiner_suspend',
-      target: target.email,
-      details: data.hours === 0 ? 'Zawieszenie zdjęte' : `Zawieszono na ${data.hours} godz.${data.reason ? `, powód: ${data.reason}` : ''}`,
-    })
-    await notifyUser(
-      target.email,
-      data.hours === 0 ? 'Konto odwieszone' : 'Konto zawieszone',
-      data.hours === 0
-        ? 'Zawieszenie Twojego konta egzaminatora zostało zdjęte.'
-        : `Twoje konto egzaminatora zostało zawieszone na ${data.hours} godz. przez moderatora.${data.reason ? ` Powód: ${data.reason}` : ''}`,
-    )
+    await applySuspension(target, data.hours, data.reason, { identity: context.identity, role: ROLE_EXAM_MOD, label: 'moderatora' })
     return { ok: true }
   })
 
@@ -750,5 +779,150 @@ export const decideRemoval = createServerFn({ method: 'POST' })
         ? `Administrator zaakceptował wniosek o usunięcie konta ${claimed.targetEmail}.`
         : `Administrator odrzucił wniosek o usunięcie konta ${claimed.targetEmail}.${data.note ? ` Uwaga: ${data.note}` : ''}`,
     )
+    return { ok: true }
+  })
+
+// ---------------------------------------------------------------------------
+// Admin: editing one examiner / moderator account and their permissions
+// ---------------------------------------------------------------------------
+
+type Outcome = { ok: true } | { ok: false; error: string }
+const NOT_EXAM_STAFF = 'To nie jest konto egzaminatora ani moderatora.'
+
+export type ExamStaffPermissionView = {
+  email: string
+  role: 'examiner' | 'moderator'
+  permissions: { key: string; label: string; group: string; allowed: boolean; source: Resolution['source']; until?: string }[]
+  /** Exceptions already set for this person (what the editor starts from). */
+  exceptions: Record<string, { mode: 'allow' | 'deny'; until?: string }>
+}
+
+/** Admin: what one examiner or moderator may do, and why (role default, role switch or a personal exception). */
+export const examStaffPermissions = createServerFn({ method: 'GET' })
+  .middleware([requireAdmin, needs('examstaff.manage')])
+  .validator(idSchema)
+  .handler(async ({ data }): Promise<ExamStaffPermissionView | null> => {
+    const row = await examStaffTarget(data.id)
+    if (!row) return null
+    const rows = await db
+      .select()
+      .from(settings)
+      .where(inArray(settings.key, [PERM_ROLES_KEY, permUserKey(row.id)]))
+    const get = (key: string) => rows.find((r) => r.key === key)?.value
+    const denials = parseDenials(get(PERM_ROLES_KEY))
+    const exceptions = parseExceptions(get(permUserKey(row.id)))
+    return {
+      email: row.email,
+      role: row.roles.includes(ROLE_EXAM_MOD) ? 'moderator' : 'examiner',
+      exceptions,
+      permissions: PERMISSIONS.filter((p) => row.roles.some((role) => p.roles.includes(role))).map((p) => {
+        const result = resolvePermission(p.key, { roles: row.roles, isOwner: false, denials, exceptions })
+        return { key: p.key, label: p.label, group: p.group, allowed: result.allowed, source: result.source, until: result.until }
+      }),
+    }
+  })
+
+/**
+ * Admin: personal exceptions (blocked / allowed, also only until a date) for one examiner or moderator.
+ * An admin can only take permissions away or give back what the person's role already has; the role switches
+ * themselves stay with the owner.
+ */
+export const saveExamStaffPermissions = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin, needs('examstaff.manage')])
+  .validator(
+    z.object({
+      id: idSchema.shape.id,
+      exceptions: z.record(z.string().max(60), z.object({ mode: z.enum(['allow', 'deny']), until: z.string().max(40).optional() })),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<Outcome> => {
+    const row = await examStaffTarget(data.id)
+    if (!row) return { ok: false, error: NOT_EXAM_STAFF }
+    return applyPersonExceptions(row, data.exceptions, context)
+  })
+
+/** Admin: switches an account between examiner and moderator. The person is signed out so the new role applies at once. */
+export const setExamStaffRole = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin, needs('examstaff.manage')])
+  .validator(z.object({ id: idSchema.shape.id, role: z.enum(['examiner', 'moderator']) }))
+  .handler(async ({ data, context }): Promise<Outcome> => {
+    const row = await examStaffTarget(data.id)
+    if (!row) return { ok: false, error: NOT_EXAM_STAFF }
+    const role = data.role === 'moderator' ? ROLE_EXAM_MOD : ROLE_EXAMINER
+    if (row.roles.length === 1 && row.roles[0] === role) return { ok: true }
+    await db.update(users).set({ roles: [role] }).where(eq(users.id, row.id))
+    await signOutEverywhere(row)
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'examiner_edit',
+      target: row.email,
+      details: `Zmiana roli: ${row.roles.join(', ')} → ${role}`,
+    })
+    return { ok: true }
+  })
+
+/** Admin: sets a new password for an account (the person must change it at the next sign-in; all sessions end). */
+export const setExamStaffPassword = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin, needs('examstaff.manage')])
+  .validator(z.object({ id: idSchema.shape.id, password: passwordSchema }))
+  .handler(async ({ data, context }): Promise<Outcome> => {
+    const row = await examStaffTarget(data.id)
+    if (!row) return { ok: false, error: NOT_EXAM_STAFF }
+    await db
+      .update(users)
+      .set({
+        passwordHash: await hashPassword(data.password),
+        weakPassword: isWeakPassword(data.password, row.email),
+        mustChangePassword: true,
+      })
+      .where(eq(users.id, row.id))
+    await signOutEverywhere(row)
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'examiner_edit',
+      target: row.email,
+      details: 'Ustawiono nowe hasło (wymuszona zmiana przy logowaniu)',
+    })
+    return { ok: true }
+  })
+
+/** Admin: suspends an examiner or moderator for a number of hours (0 lifts it). No upper limit other than one year. */
+export const suspendExamStaff = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin, needs('examstaff.manage')])
+  .validator(
+    z.object({
+      id: idSchema.shape.id,
+      hours: z.number().int().min(0).max(8760),
+      reason: z.string().trim().max(300).optional(),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<Outcome> => {
+    const row = await examStaffTarget(data.id)
+    if (!row) return { ok: false, error: NOT_EXAM_STAFF }
+    await applySuspension(row, data.hours, data.reason, { identity: context.identity, role: ROLE_ADMIN, label: 'administratora' })
+    return { ok: true }
+  })
+
+/** Admin: blocks or unblocks an account (a blocked account cannot sign in at all). */
+export const setExamStaffLocked = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin, needs('examstaff.manage')])
+  .validator(z.object({ id: idSchema.shape.id, locked: z.boolean(), reason: z.string().trim().max(200).optional() }))
+  .handler(async ({ data, context }): Promise<Outcome> => {
+    const row = await examStaffTarget(data.id)
+    if (!row) return { ok: false, error: NOT_EXAM_STAFF }
+    await db
+      .update(users)
+      .set({ locked: data.locked, lockedReason: data.locked ? data.reason || 'Zablokowane przez administratora' : null })
+      .where(eq(users.id, row.id))
+    if (data.locked) await signOutEverywhere(row)
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'examiner_edit',
+      target: row.email,
+      details: data.locked ? `Konto zablokowane${data.reason ? `: ${data.reason}` : ''}` : 'Konto odblokowane',
+    })
     return { ok: true }
   })

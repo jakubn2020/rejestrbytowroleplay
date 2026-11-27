@@ -19,9 +19,23 @@ import { failureText } from '@/lib/examiners'
 import { formatDateTime } from '@/lib/registry'
 
 export function randomPassword(): string {
-  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const bytes = crypto.getRandomValues(new Uint8Array(14))
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')
+  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ'
+  const digits = '23456789'
+  const specials = '!?#%+=@'
+  const pick = (set: string) => set[crypto.getRandomValues(new Uint32Array(1))[0]! % set.length]!
+  // 12 letters + 2 digits + 2 special characters: always meets the password policy (10+, a digit, a special character).
+  const chars = [
+    ...Array.from({ length: 12 }, () => pick(alphabet)),
+    pick(digits),
+    pick(digits),
+    pick(specials),
+    pick(specials),
+  ]
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0]! % (i + 1)
+    ;[chars[i], chars[j]] = [chars[j]!, chars[i]!]
+  }
+  return chars.join('')
 }
 
 function Meter({ label, used, max }: { label: string; used: number; max: number }) {

@@ -111,6 +111,7 @@ export const AUDIT_ACTION_LABELS = {
   examiner_delete: 'Usunięto konto egzaminatora lub moderatora',
   examiner_limits: 'Zmiana limitów egzaminatorów',
   examiner_appeal: 'Odwołanie od zawieszenia konta',
+  examiner_edit: 'Edycja konta egzaminatora lub moderatora (rola, hasło, blokada)',
   permissions_change: 'Zmiana uprawnień lub adresów logowania',
   discord_settings: 'Zmiana ustawień powiadomień na Discordzie',
 } as const

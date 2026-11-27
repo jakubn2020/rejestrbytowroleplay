@@ -1,5 +1,5 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Paperclip, Send } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Send } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Panel } from '@/components/admin/panel'
@@ -15,50 +15,17 @@ import {
   pwzFromPesel,
 } from '@/lib/registry'
 import { getCooldown, submitRequest } from '@/lib/requests.functions'
+import { ProofPicker } from '@/components/admin/proof-picker'
+
+export { compressImage } from '@/lib/image-compress'
 
 const selectClass =
   'h-9 w-full rounded-md border border-input bg-white px-3 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50'
-
-/** Longest side and size limit of the screenshot that is sent to the server. */
-const MAX_SIDE = 1600
-const MAX_CHARS = 1_800_000
 
 function formatWait(seconds: number) {
   const m = Math.floor(seconds / 60)
   const sec = String(seconds % 60).padStart(2, '0')
   return `${m}:${sec}`
-}
-
-/** Shrinks a screenshot in the browser so it stays small enough to store (JPEG). */
-export async function compressImage(file: File): Promise<string> {
-  const url = URL.createObjectURL(file)
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve(img)
-      img.onerror = () => reject(new Error('Nie udało się odczytać obrazu'))
-      img.src = url
-    })
-    let scale = Math.min(1, MAX_SIDE / Math.max(image.naturalWidth, image.naturalHeight))
-    let quality = 0.82
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
-      const context = canvas.getContext('2d')
-      if (!context) throw new Error('Brak obsługi canvas')
-      context.fillStyle = '#ffffff'
-      context.fillRect(0, 0, canvas.width, canvas.height)
-      context.drawImage(image, 0, 0, canvas.width, canvas.height)
-      const dataUrl = canvas.toDataURL('image/jpeg', quality)
-      if (dataUrl.length <= MAX_CHARS) return dataUrl
-      scale *= 0.75
-      quality = Math.max(0.5, quality - 0.1)
-    }
-    throw new Error('Zrzut ekranu jest zbyt duży')
-  } finally {
-    URL.revokeObjectURL(url)
-  }
 }
 
 /** kierownictwo: ask for a new entry, with a screenshot of the person's message as proof. */
@@ -93,24 +60,6 @@ export function RequestForm({ onSubmitted }: { onSubmitted: () => void }) {
     )
     return () => clearInterval(timer)
   }, [waiting])
-
-  async function pickFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setError(null)
-    if (!file.type.startsWith('image/')) {
-      setError('Dołącz zrzut ekranu jako plik obrazu.')
-      return
-    }
-    try {
-      setProof(await compressImage(file))
-      setProofName(file.name)
-    } catch {
-      setProof(null)
-      setProofName('')
-      setError('Nie udało się wczytać zrzutu ekranu. Spróbuj innego pliku.')
-    }
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -227,28 +176,18 @@ export function RequestForm({ onSubmitted }: { onSubmitted: () => void }) {
             />
           )}
         </div>
-        <div className="space-y-2 sm:col-span-2">
-          <Label htmlFor="req-proof">
-            Zrzut ekranu wiadomości (dowód, że osoba chce wpis)
-          </Label>
-          <Input
+        <div className="sm:col-span-2">
+          <ProofPicker
             id="req-proof"
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            onChange={(e) => void pickFile(e)}
+            label="Zrzut ekranu wiadomości (dowód, że osoba chce wpis)"
+            proof={proof}
+            proofName={proofName}
+            onChange={(value, name) => {
+              setProof(value)
+              setProofName(name)
+            }}
+            onError={setError}
           />
-          {proof && (
-            <div className="space-y-1">
-              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Paperclip className="size-3" /> {proofName}
-              </p>
-              <img
-                src={proof}
-                alt="Podgląd zrzutu ekranu"
-                className="max-h-56 rounded border object-contain"
-              />
-            </div>
-          )}
         </div>
         {error && (
           <p role="alert" className="text-sm text-destructive sm:col-span-2">

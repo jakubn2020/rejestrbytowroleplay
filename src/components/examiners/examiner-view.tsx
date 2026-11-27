@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { Lightbulb, Paperclip, Send, Timer } from 'lucide-react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Lightbulb, Send, Timer } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Panel } from '@/components/admin/panel'
-import { compressImage } from '@/components/admin/request-form'
+import { ProofPicker } from '@/components/admin/proof-picker'
 import { RequestStatusBadge } from '@/components/admin/requests-panels'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -92,24 +92,6 @@ export function ExaminerView({ email }: { email: string }) {
       localStorage.setItem(`examiner-draft:${email}`, JSON.stringify(next))
     } catch {
       // the draft then lasts until reload
-    }
-  }
-
-  async function pickFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setError(null)
-    if (!file.type.startsWith('image/')) {
-      setError('Dołącz zrzut ekranu jako plik obrazu.')
-      return
-    }
-    try {
-      setProof(await compressImage(file))
-      setProofName(file.name)
-    } catch {
-      setProof(null)
-      setProofName('')
-      setError('Nie udało się wczytać zrzutu ekranu. Spróbuj innego pliku.')
     }
   }
 
@@ -279,15 +261,18 @@ export function ExaminerView({ email }: { email: string }) {
               <Input id="ex-specialization" maxLength={160} placeholder="np. chirurgia ogólna" value={draft.specialization} onChange={(e) => change({ specialization: e.target.value })} />
             )}
           </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="ex-proof">Zrzut ekranu wiadomości (dowód, że osoba chce wpis)</Label>
-            <Input id="ex-proof" type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => void pickFile(e)} />
-            {proof && (
-              <div className="space-y-1">
-                <p className="flex items-center gap-1 text-xs text-muted-foreground"><Paperclip className="size-3" /> {proofName}</p>
-                <img src={proof} alt="Podgląd zrzutu ekranu" className="max-h-56 rounded border object-contain" />
-              </div>
-            )}
+          <div className="sm:col-span-2">
+            <ProofPicker
+              id="ex-proof"
+              label="Zrzut ekranu wiadomości (dowód, że osoba chce wpis)"
+              proof={proof}
+              proofName={proofName}
+              onChange={(value, name) => {
+                setProof(value)
+                setProofName(name)
+              }}
+              onError={setError}
+            />
           </div>
           {error && <p role="alert" className="text-sm text-destructive sm:col-span-2">{error}</p>}
           <div className="sm:col-span-2">
