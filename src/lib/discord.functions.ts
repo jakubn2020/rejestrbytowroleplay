@@ -46,6 +46,7 @@ const personSchema = z.object({
 })
 
 const kindRuleSchema = z.object({
+  severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
   send: z.boolean(),
   ping: z.array(z.string().max(40)).max(30),
 })
@@ -78,6 +79,7 @@ export const saveDiscordSettings = createServerFn({ method: 'POST' })
       kinds[kind] = {
         send: rule?.send ?? false,
         ping: (rule?.ping ?? []).filter((id) => ids.has(id)),
+        ...(rule?.severity ? { severity: rule.severity } : {}),
       }
     }
     if (data.criticalRole.enabled && !DISCORD_ID_PATTERN.test(data.criticalRole.roleId)) {
@@ -88,7 +90,11 @@ export const saveDiscordSettings = createServerFn({ method: 'POST' })
       actor: context.identity,
       actorRole: ROLE_ADMIN,
       action: 'discord_settings',
-      details: `Discord: ${data.enabled ? 'włączony' : 'wyłączony'}; ping roli przy alertach krytycznych: ${data.criticalRole.enabled ? `włączony (rola ${data.criticalRole.roleId})` : 'wyłączony'}; osoby: ${data.people
+      details: `Ważność alertów zmieniona: ${
+        DISCORD_ALERT_KINDS.filter((k) => data.kinds[k.kind]?.severity && data.kinds[k.kind]?.severity !== k.severity)
+          .map((k) => `${k.label} → ${data.kinds[k.kind]!.severity}`)
+          .join('; ') || 'brak zmian względem domyślnych'
+      }. Discord: ${data.enabled ? 'włączony' : 'wyłączony'}; ping roli przy alertach krytycznych: ${data.criticalRole.enabled ? `włączony (rola ${data.criticalRole.roleId})` : 'wyłączony'}; osoby: ${data.people
         .map((p) => `${p.label}${p.enabled ? '' : ' (wyłączona)'}`)
         .join(', ') || 'brak'}`,
     })

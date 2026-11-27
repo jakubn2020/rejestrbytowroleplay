@@ -40,7 +40,21 @@ export type DiscordPerson = {
   enabled: boolean
 }
 
+export const ALERT_SEVERITIES: readonly AlertSeverity[] = ['low', 'medium', 'high', 'critical']
+
+export const SEVERITY_NAMES: Record<AlertSeverity, string> = {
+  low: 'niska',
+  medium: 'średnia',
+  high: 'wysoka',
+  critical: 'krytyczna',
+}
+
 export type DiscordKindRule = {
+  /**
+   * The owner's own severity for this kind of alert (overrides the built-in one everywhere: the alerts list,
+   * the e-mail subject and Discord). Missing = the built-in severity. "Critical" is what pings the Discord role.
+   */
+  severity?: AlertSeverity
   /** Send this kind of alert to Discord at all. */
   send: boolean
   /** Ids (`DiscordPerson.id`) of the people pinged for this kind. */
@@ -92,7 +106,8 @@ export function normalizeDiscordConfig(raw: Partial<DiscordConfig> | null | unde
   const kinds: Record<string, DiscordKindRule> = {}
   for (const kind of DISCORD_KIND_IDS) {
     const rule = raw?.kinds?.[kind] ?? base.kinds[kind]!
-    kinds[kind] = { send: Boolean(rule.send), ping: rule.ping.filter((id) => ids.has(id)) }
+    const severity = ALERT_SEVERITIES.find((s) => s === rule.severity)
+    kinds[kind] = { send: Boolean(rule.send), ping: rule.ping.filter((id) => ids.has(id)), ...(severity ? { severity } : {}) }
   }
   const role = raw?.criticalRole
   const criticalRole: DiscordCriticalRole = {

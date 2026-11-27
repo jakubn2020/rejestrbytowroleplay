@@ -23,7 +23,7 @@ import {
   type AuditAction,
 } from './registry'
 import { SEC_DEFAULTS, SEC_KEYS, readNumberSetting } from './site-settings-server'
-import { sendDiscordAlert } from './discord-server'
+import { effectiveSeverity, sendDiscordAlert } from './discord-server'
 
 export const MFA_COOKIE = 'rejestr_mfa'
 
@@ -463,7 +463,8 @@ export async function raiseAlert(opts: {
         .limit(1)
       if (duplicate.length > 0) return
     }
-    const severity = opts.severity ?? severityOf(opts.kind)
+    // The owner can change how serious each kind of alert is (security centre → Discord alerts).
+    const severity = await effectiveSeverity(opts.kind, opts.severity ?? severityOf(opts.kind))
     await recordEvent({ ...opts, isAlert: true, severity })
     let country: string | null = null
     try {

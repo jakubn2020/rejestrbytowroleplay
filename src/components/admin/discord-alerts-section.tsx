@@ -3,15 +3,20 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DISCORD_ID_PATTERN, type DiscordConfig, type DiscordPerson } from '@/lib/discord-config'
+import {
+  ALERT_SEVERITIES,
+  DISCORD_ID_PATTERN,
+  SEVERITY_NAMES,
+  type AlertSeverity,
+  type DiscordConfig,
+  type DiscordPerson,
+} from '@/lib/discord-config'
 import {
   getDiscordSettings,
   saveDiscordSettings,
   testDiscordWebhook,
   type DiscordSettings,
 } from '@/lib/discord.functions'
-
-const SEVERITY_LABEL = { critical: 'krytyczne', high: 'wysokie', medium: 'średnie', low: 'niskie' } as const
 
 /**
  * Owner only: alerts on Discord (webhook). Choose which alerts are sent and who gets pinged for each one;
@@ -49,6 +54,14 @@ export function DiscordAlertsSection() {
     const rule = config.kinds[kind] ?? { send: false, ping: [] }
     const ping = on ? [...new Set([...rule.ping, personId])] : rule.ping.filter((id) => id !== personId)
     setConfig({ ...config, kinds: { ...config.kinds, [kind]: { ...rule, ping } } })
+  }
+
+  function setSeverity(kind: string, severity: AlertSeverity | '') {
+    if (!config) return
+    const rule = config.kinds[kind] ?? { send: false, ping: [] }
+    const { severity: _old, ...rest } = rule
+    void _old
+    setConfig({ ...config, kinds: { ...config.kinds, [kind]: severity ? { ...rest, severity } : rest } })
   }
 
   function setSend(kind: string, send: boolean) {
@@ -152,8 +165,9 @@ export function DiscordAlertsSection() {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Alerty krytyczne (np. atak siłowy i blokada adresu IP, logowania z dwóch krajów, masowe usuwanie, lockdown) są wysyłane
-          zawsze, także gdy wyłączysz je w tabeli niżej. ID roli: Ustawienia serwera → Role → prawy przycisk na roli →
+          Alerty krytyczne są wysyłane zawsze, także gdy wyłączysz je w tabeli niżej. To, które alerty są krytyczne, ustawiasz
+          w kolumnie „Ważność” (domyślnie m.in. atak siłowy z blokadą IP, logowania z dwóch krajów, masowe usuwanie, lockdown).
+          Zmiana ważności działa wszędzie: na liście alertów w panelu, w temacie e-maila i na Discordzie. ID roli: Ustawienia serwera → Role → prawy przycisk na roli →
           „Kopiuj ID roli” (wymaga trybu dewelopera). Jeśli ping nie działa, sprawdź, czy rola ma włączone oznaczanie @wzmianką.
         </p>
       </div>
@@ -202,6 +216,7 @@ export function DiscordAlertsSection() {
             <thead>
               <tr className="border-b text-muted-foreground">
                 <th className="py-1 pr-2 font-medium">Alert</th>
+                <th className="px-2 font-medium">Ważność</th>
                 <th className="px-2 font-medium">Wyślij</th>
                 {config.people.map((p) => (
                   <th key={p.id} className="px-2 font-medium">Ping: {p.label}</th>
@@ -213,8 +228,19 @@ export function DiscordAlertsSection() {
                 const rule = config.kinds[kind] ?? { send: false, ping: [] }
                 return (
                   <tr key={kind} className="border-b last:border-0">
-                    <td className="py-1.5 pr-2">
-                      {label} <span className="text-muted-foreground">({SEVERITY_LABEL[severity]})</span>
+                    <td className="py-1.5 pr-2">{label}</td>
+                    <td className="px-2">
+                      <select
+                        aria-label={`Ważność: ${label}`}
+                        value={rule.severity ?? ''}
+                        onChange={(e) => setSeverity(kind, e.target.value as AlertSeverity | '')}
+                        className={`h-7 rounded-md border border-input px-1 text-xs ${(rule.severity ?? severity) === 'critical' ? 'bg-red-50 font-semibold text-red-800' : 'bg-white'}`}
+                      >
+                        <option value="">domyślna ({SEVERITY_NAMES[severity]})</option>
+                        {ALERT_SEVERITIES.map((s) => (
+                          <option key={s} value={s}>{SEVERITY_NAMES[s]}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-2">
                       <input type="checkbox" aria-label={`Wysyłaj: ${label}`} checked={rule.send} onChange={(e) => setSend(kind, e.target.checked)} />

@@ -18,6 +18,18 @@ describe('discord config', () => {
     })
   })
 
+  it('keeps only valid severity overrides', () => {
+    const config = normalizeDiscordConfig({
+      kinds: {
+        new_ip: { send: true, ping: [], severity: 'critical' },
+        odd_hours: { send: true, ping: [], severity: 'bogus' as never },
+      },
+    })
+    expect(config.kinds.new_ip!.severity).toBe('critical')
+    expect(config.kinds.odd_hours!.severity).toBeUndefined()
+    expect(defaultDiscordConfig().kinds.ip_locked!.severity).toBeUndefined()
+  })
+
   it('fills in new alert kinds and drops pings of removed people', () => {
     const config = normalizeDiscordConfig({
       enabled: false,
