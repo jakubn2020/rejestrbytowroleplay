@@ -124,6 +124,7 @@ export const AUDIT_ACTION_LABELS = {
   examiner_delete: 'Usunięto konto egzaminatora lub moderatora',
   examiner_limits: 'Zmiana limitów egzaminatorów',
   examiner_appeal: 'Odwołanie od zawieszenia konta',
+  reason_templates: 'Zmiana szablonów powodów',
   coowner_change: 'Nadanie lub odebranie uprawnień superadmina',
   account_roles: 'Zmiana ról konta (łączenie ról)',
   examiner_edit: 'Edycja konta egzaminatora lub moderatora (rola, hasło, blokada)',

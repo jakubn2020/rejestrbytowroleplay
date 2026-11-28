@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ReasonTemplates } from '@/components/admin/reason-templates'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -313,6 +314,7 @@ export function RequestsPanel({ onChanged }: { onChanged: () => void }) {
               maxLength={300}
               placeholder="np. zrzut ekranu jest nieczytelny"
             />
+            <ReasonTemplates category="reject" onPick={setReason} />
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setRejecting(null)}>
