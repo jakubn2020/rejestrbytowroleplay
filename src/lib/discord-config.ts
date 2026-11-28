@@ -14,6 +14,7 @@ export const DISCORD_ALERT_KINDS: { kind: string; label: string; severity: Alert
   { kind: 'pesel_quota', label: 'Wyczerpany dzienny limit odsłonięć PESEL', severity: 'high' },
   { kind: 'new_country', label: 'Logowanie z nowego kraju', severity: 'high' },
   { kind: 'tor_login', label: 'Logowanie przez sieć Tor', severity: 'high' },
+  { kind: 'approval_requested', label: 'Wniosek o zgodę innych adminów (zasada dwóch osób)', severity: 'medium' },
   { kind: 'mass_status', label: 'Masowa zmiana statusów', severity: 'high' },
   { kind: 'pwz_guessing', label: 'Zgadywanie numerów PWZ/PESEL', severity: 'high' },
   { kind: 'ip_autoban', label: 'Automatyczna (czasowa) blokada adresu IP', severity: 'medium' },

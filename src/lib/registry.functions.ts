@@ -26,6 +26,7 @@ import {
   users,
   type Practitioner,
 } from '../../db/schema'
+import { gateAction } from './approvals-server'
 import { requireAdmin, requireStaff, requireSuperAdmin, needs } from './auth-server'
 import { superAdminEmail } from './session-server'
 import { hashPassword } from './password'
@@ -459,6 +460,7 @@ export const deletePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin, needs('entries.trash')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
+    await gateAction({ action: 'entry_delete', target: data.id, summary: `Usunięcie wpisu #${data.id} (do kosza)`, user: context.user, identity: context.identity })
     const [existing] = await db
       .select()
       .from(practitioners)
@@ -644,6 +646,7 @@ export const purgePractitioner = createServerFn({ method: 'POST' })
   .middleware([requireAdmin, needs('entries.trash')])
   .validator(z.object({ id: z.number().int().positive() }))
   .handler(async ({ data, context }) => {
+    await gateAction({ action: 'entry_purge', target: data.id, summary: `Trwałe usunięcie wpisu #${data.id} z kosza`, user: context.user, identity: context.identity })
     const [existing] = await db
       .select()
       .from(practitioners)
@@ -850,8 +853,10 @@ export const deleteManagement = createServerFn({ method: 'POST' })
   .middleware([requireAdmin, needs('accounts.management')])
   .validator(idInput)
   .handler(
-    async ({ data, context }): Promise<DeleteManagementResult> =>
-      removeAccount(data.id, ROLE_MANAGEMENT, context),
+    async ({ data, context }): Promise<DeleteManagementResult> => {
+      await gateAction({ action: 'management_delete', target: data.id, summary: `Usunięcie konta kierownictwa (id ${data.id})`, user: context.user, identity: context.identity })
+      return removeAccount(data.id, ROLE_MANAGEMENT, context)
+    },
   )
 
 export type SetPasswordResult = { ok: true } | { ok: false; error: string }
@@ -861,8 +866,10 @@ export const setManagementPassword = createServerFn({ method: 'POST' })
   .middleware([requireAdmin, needs('accounts.management')])
   .validator(z.object({ id: idInput.shape.id, password: passwordSchema }))
   .handler(
-    async ({ data, context }): Promise<SetPasswordResult> =>
-      resetAccountPassword(data.id, data.password, ROLE_MANAGEMENT, context),
+    async ({ data, context }): Promise<SetPasswordResult> => {
+      await gateAction({ action: 'management_password', target: data.id, summary: `Zmiana hasła konta kierownictwa (id ${data.id})`, user: context.user, identity: context.identity })
+      return resetAccountPassword(data.id, data.password, ROLE_MANAGEMENT, context)
+    },
   )
 
 export type AddManagementResult = AddAccountResult
@@ -872,8 +879,10 @@ export const addManagement = createServerFn({ method: 'POST' })
   .middleware([requireAdmin, needs('accounts.management')])
   .validator(accountInput)
   .handler(
-    async ({ data, context }): Promise<AddManagementResult> =>
-      createAccount(data, ROLE_MANAGEMENT, context),
+    async ({ data, context }): Promise<AddManagementResult> => {
+      await gateAction({ action: 'management_add', target: data.email, summary: `Dodanie konta kierownictwa ${data.email}`, user: context.user, identity: context.identity })
+      return createAccount(data, ROLE_MANAGEMENT, context)
+    },
   )
 
 // --- admin (owner account only) -------------------------------------------
@@ -1001,6 +1010,13 @@ export const bulkUpdateEntries = createServerFn({ method: 'POST' })
   .middleware([requireAdmin, needs('entries.bulk')])
   .validator(bulkInput)
   .handler(async ({ data, context }) => {
+    const bulkWhat =
+      data.action.type === 'delete'
+        ? 'usunięcie'
+        : data.action.type === 'status'
+          ? `zmiana statusu na ${data.action.status}`
+          : 'zmiana terminu ważności'
+    await gateAction({ action: 'entries_bulk', target: [data.action.type, data.action.type === 'status' ? data.action.status : data.action.type === 'expiry' ? (data.action.expiresAt ?? 'brak') : '', ...data.ids], summary: `Akcja zbiorcza (${bulkWhat}) na ${data.ids.length} wpisach`, user: context.user, identity: context.identity })
     const rows = await db
       .select()
       .from(practitioners)

@@ -38,6 +38,7 @@ const KIND_LABELS: Record<string, string> = {
   pesel_quota: 'Alert: limit PESEL',
   pesel_changed: 'Alert: zmiana PESEL',
   mass_delete: 'Alert: masowe usuwanie',
+  approval_requested: 'Alert: wniosek o zgodę adminów',
   mass_status: 'Alert: masowa zmiana statusów',
   qr_mass_check: 'Alert: masowe sprawdzanie QR',
   pwz_guessing: 'Alert: zgadywanie numerów',

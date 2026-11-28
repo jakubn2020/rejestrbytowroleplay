@@ -275,6 +275,7 @@ const KIND_SEVERITY: Record<string, Severity> = {
   ip_locked: 'critical',
   mass_delete: 'critical',
   lockdown: 'critical',
+  approval_requested: 'medium',
 }
 
 export function severityOf(kind: string): Severity {
