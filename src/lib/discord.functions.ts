@@ -9,7 +9,9 @@ import {
   type DiscordConfig,
 } from './discord-config'
 import {
-  discordWebhookConfigured,
+  discordWebhookStatus,
+  normalizeWebhookUrl,
+  writeDiscordWebhook,
   readDiscordConfig,
   sendDiscordTest,
   writeDiscordConfig,
@@ -19,8 +21,11 @@ import { logEvent } from './security-server'
 
 export type DiscordSettings = {
   config: DiscordConfig
-  /** Is DISCORD_WEBHOOK_URL set to a valid webhook? (The URL itself is never sent to the browser.) */
+  /** Is a valid webhook set (entered in the panel or in DISCORD_WEBHOOK_URL)? The URL itself is never sent to the browser. */
   webhookConfigured: boolean
+  webhookSource: 'panel' | 'env' | null
+  /** Last characters of the address, so the owner can recognise which webhook is active. */
+  webhookHint: string
   kinds: typeof DISCORD_ALERT_KINDS
 }
 
@@ -28,12 +33,37 @@ export type DiscordSettings = {
 export const getDiscordSettings = createServerFn({ method: 'GET' })
   .middleware([requireSuperAdmin])
   .handler(
-    async (): Promise<DiscordSettings> => ({
-      config: await readDiscordConfig(),
-      webhookConfigured: discordWebhookConfigured(),
-      kinds: DISCORD_ALERT_KINDS,
-    }),
+    async (): Promise<DiscordSettings> => {
+      const status = await discordWebhookStatus()
+      return {
+        config: await readDiscordConfig(),
+        webhookConfigured: status.configured,
+        webhookSource: status.source,
+        webhookHint: status.hint,
+        kinds: DISCORD_ALERT_KINDS,
+      }
+    },
   )
+
+/** Owner only: saves the webhook address entered in the panel (an empty value removes it). It is never sent back. */
+export const saveDiscordWebhook = createServerFn({ method: 'POST' })
+  .middleware([requireSuperAdmin])
+  .validator(z.object({ url: z.string().max(500) }))
+  .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const raw = data.url.trim()
+    const url = raw ? normalizeWebhookUrl(raw) : null
+    if (raw && !url) {
+      return { ok: false, error: 'To nie wygląda na adres webhooka. Ma mieć postać https://discord.com/api/webhooks/ID/TOKEN.' }
+    }
+    await writeDiscordWebhook(url)
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'discord_settings',
+      details: url ? 'Ustawiono adres webhooka Discorda w panelu' : 'Usunięto adres webhooka Discorda z panelu',
+    })
+    return { ok: true }
+  })
 
 const personSchema = z.object({
   id: z.string().trim().min(1).max(40),

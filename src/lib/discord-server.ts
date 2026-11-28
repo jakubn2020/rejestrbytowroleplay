@@ -11,19 +11,52 @@ import {
   type AlertSeverity,
   type DiscordConfig,
 } from './discord-config'
-import { readSetting, writeSetting } from './site-settings-server'
+import { clearSetting, readSetting, writeSetting } from './site-settings-server'
 
 export const DISCORD_SETTING_KEY = 'discord_config'
 
-const WEBHOOK_PATTERN = /^https:\/\/(?:ptb\.|canary\.)?(?:discord|discordapp)\.com\/api\/webhooks\/\d+\/[\w-]+$/
+export const DISCORD_WEBHOOK_SETTING_KEY = 'discord_webhook_url'
 
-function webhookUrl(): string | null {
-  const url = (process.env.DISCORD_WEBHOOK_URL ?? '').trim()
+const WEBHOOK_PATTERN =
+  /^https:\/\/(?:ptb\.|canary\.)?(?:discord|discordapp)\.com\/api(?:\/v\d+)?\/webhooks\/\d+\/[\w-]+\/?(?:\?[\w=&%.-]*)?$/
+
+/** Cleans a pasted webhook address (spaces, quotes, <angle brackets>) and returns it when it is a Discord webhook, else null. */
+export function normalizeWebhookUrl(raw: string | null | undefined): string | null {
+  const url = (raw ?? '').trim().replace(/^["'<]+|["'>]+$/g, '').trim()
   return WEBHOOK_PATTERN.test(url) ? url : null
 }
 
-export function discordWebhookConfigured(): boolean {
-  return webhookUrl() !== null
+/** The address entered in the panel wins; the DISCORD_WEBHOOK_URL environment variable is the fallback. */
+async function webhookUrl(): Promise<string | null> {
+  try {
+    const stored = normalizeWebhookUrl(await readSetting(DISCORD_WEBHOOK_SETTING_KEY))
+    if (stored) return stored
+  } catch (error) {
+    console.error('Nie udało się odczytać adresu webhooka Discorda', error)
+  }
+  return normalizeWebhookUrl(process.env.DISCORD_WEBHOOK_URL)
+}
+
+/** Where the webhook comes from (never the address itself; only the last characters as a hint for the owner). */
+export async function discordWebhookStatus(): Promise<{ configured: boolean; source: 'panel' | 'env' | null; hint: string }> {
+  let stored: string | null = null
+  try {
+    stored = normalizeWebhookUrl(await readSetting(DISCORD_WEBHOOK_SETTING_KEY))
+  } catch {
+    stored = null
+  }
+  const env = normalizeWebhookUrl(process.env.DISCORD_WEBHOOK_URL)
+  const url = stored ?? env
+  return {
+    configured: url !== null,
+    source: stored ? 'panel' : env ? 'env' : null,
+    hint: url ? `…${url.replace(/\?.*$/, '').replace(/\/$/, '').slice(-6)}` : '',
+  }
+}
+
+export async function writeDiscordWebhook(url: string | null): Promise<void> {
+  if (url) await writeSetting(DISCORD_WEBHOOK_SETTING_KEY, url)
+  else await clearSetting(DISCORD_WEBHOOK_SETTING_KEY)
 }
 
 export async function readDiscordConfig(): Promise<DiscordConfig> {
@@ -94,7 +127,7 @@ export async function sendDiscordAlert(alert: {
   country?: string | null
 }): Promise<void> {
   try {
-    const url = webhookUrl()
+    const url = await webhookUrl()
     if (!url) return
     const config = await readDiscordConfig()
     if (!config.enabled) return
@@ -143,9 +176,9 @@ export async function sendDiscordAlert(alert: {
 
 /** Test message from the panel (never pings anybody). Reports whether Discord accepted it. */
 export async function sendDiscordTest(by: string): Promise<{ ok: boolean; error?: string }> {
-  const url = webhookUrl()
+  const url = await webhookUrl()
   if (!url) {
-    return { ok: false, error: 'Brak poprawnego adresu webhooka (zmienna środowiskowa DISCORD_WEBHOOK_URL).' }
+    return { ok: false, error: 'Brak poprawnego adresu webhooka. Wklej go w panelu albo ustaw zmienną DISCORD_WEBHOOK_URL.' }
   }
   return post(url, {
     username: 'Centralny Rejestr – alerty',
