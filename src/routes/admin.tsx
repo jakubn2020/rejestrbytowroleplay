@@ -960,7 +960,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
       )}
       {isAdmin && showExamStaff && (
         <Closable onClose={() => setShowExamStaff(false)}>
-          <ExamStaffAdmin isOwner={user.isSuperAdmin} onChanged={() => setLogVersion((version) => version + 1)} />
+          <ExamStaffAdmin onChanged={() => setLogVersion((version) => version + 1)} />
         </Closable>
       )}
       {user.isSuperAdmin && showAdmins && (

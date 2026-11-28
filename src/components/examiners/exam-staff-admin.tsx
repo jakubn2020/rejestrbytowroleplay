@@ -3,6 +3,7 @@ import { Check, Trash2, UserPlus, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Panel } from '@/components/admin/panel'
+import { ExamStaffEditor } from '@/components/examiners/exam-staff-editor'
 import { randomPassword } from '@/components/examiners/moderator-view'
 import { PasswordStrengthMeter } from '@/components/password-strength-meter'
 import { Button } from '@/components/ui/button'
@@ -26,7 +27,7 @@ const OVERRIDE_FIELDS = [
   { key: 'pendingMax', label: 'Oczekujące naraz', min: 1, max: 200 },
 ] as const
 
-/** Owner only: an exception to the general limits for one person. */
+/** An exception to the general limits for one person. */
 function OverrideEditor({ account, onSaved }: { account: ExamStaffAccount; onSaved: () => void }) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(OVERRIDE_FIELDS.map((f) => [f.key, String(account.override?.[f.key] ?? '')])),
@@ -70,8 +71,9 @@ function OverrideEditor({ account, onSaved }: { account: ExamStaffAccount; onSav
   )
 }
 
-export function ExamStaffAdmin({ isOwner = false, onChanged }: { isOwner?: boolean; onChanged?: () => void }) {
+export function ExamStaffAdmin({ onChanged }: { onChanged?: () => void }) {
   const [limitsFor, setLimitsFor] = useState<string | null>(null)
+  const [editFor, setEditFor] = useState<string | null>(null)
   const [data, setData] = useState<AdminExamStaff | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -226,6 +228,7 @@ export function ExamStaffAdmin({ isOwner = false, onChanged }: { isOwner?: boole
                     <span className="rounded bg-muted px-2 py-0.5 text-xs">{a.role === 'moderator' ? 'moderator' : 'egzaminator'}</span>{' '}
                     {a.suspendedUntil && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Zawieszony do {formatDateTime(a.suspendedUntil)}</span>}{' '}
                     {a.appeal && <span className="rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Odwołanie od zawieszenia</span>}{' '}
+                    {a.locked && <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-900">Zablokowane</span>}{' '}
                     {a.override && <span className="rounded bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-900">Własne limity</span>}
                   </p>
                   {a.suspendReason && <p className="text-xs text-muted-foreground">Powód zawieszenia: {a.suspendReason}</p>}
@@ -235,12 +238,22 @@ export function ExamStaffAdmin({ isOwner = false, onChanged }: { isOwner?: boole
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  {isOwner && (
-                    <Button size="sm" variant="outline" onClick={() => setLimitsFor(limitsFor === a.id ? null : a.id)}>Limity</Button>
-                  )}
+                  <Button size="sm" variant={editFor === a.id ? 'default' : 'outline'} onClick={() => setEditFor(editFor === a.id ? null : a.id)}>Edytuj</Button>
+                  <Button size="sm" variant="outline" onClick={() => setLimitsFor(limitsFor === a.id ? null : a.id)}>Limity</Button>
                   <Button size="sm" variant="ghost" onClick={() => void remove(a.id, a.email)}><Trash2 className="size-4" /> Usuń</Button>
                 </div>
-                {isOwner && limitsFor === a.id && (
+                {editFor === a.id && (
+                  <div className="w-full">
+                    <ExamStaffEditor
+                      account={a}
+                      onChanged={() => {
+                        void reload()
+                        onChanged?.()
+                      }}
+                    />
+                  </div>
+                )}
+                {limitsFor === a.id && (
                   <div className="w-full">
                     <OverrideEditor account={a} onSaved={() => void reload()} />
                   </div>

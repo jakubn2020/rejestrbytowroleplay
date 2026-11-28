@@ -24,6 +24,13 @@ import {
   permUserKey,
   roleIpKey,
 } from './permissions-server'
+import {
+  applyPersonExceptions,
+  pushHistory,
+  readHistory,
+  writePerson,
+  type PermissionChange,
+} from './person-permissions-server'
 import { ROLE_ADMIN, hasPanelRole } from './registry'
 import { logEvent } from './security-server'
 import { isSuperAdmin } from './session-server'
@@ -33,35 +40,7 @@ import { clearSetting, readSetting, writeSetting } from './site-settings-server'
 // History (so a change can be undone)
 // ---------------------------------------------------------------------------
 
-export type PermissionChange = {
-  id: string
-  at: string
-  by: string
-  scope: 'role' | 'person'
-  targetId: string
-  targetLabel: string
-  summary: string
-  /** Value before and after: a list of keys for a role, the exceptions for a person. */
-  before: unknown
-  after: unknown
-  undone: boolean
-}
-
-async function readHistory(): Promise<PermissionChange[]> {
-  try {
-    const raw = await readSetting(PERM_HISTORY_KEY)
-    const value: unknown = raw ? JSON.parse(raw) : []
-    return Array.isArray(value) ? (value as PermissionChange[]) : []
-  } catch {
-    return []
-  }
-}
-
-async function pushHistory(entry: Omit<PermissionChange, 'id' | 'at' | 'undone'>): Promise<void> {
-  const list = await readHistory()
-  list.unshift({ ...entry, id: crypto.randomUUID(), at: new Date().toISOString(), undone: false })
-  await writeSetting(PERM_HISTORY_KEY, JSON.stringify(list.slice(0, 80)))
-}
+export type { PermissionChange }
 
 const roleLabel = (role: string) => PERMISSION_ROLES.find((r) => r.role === role)?.label ?? role
 
@@ -78,11 +57,6 @@ async function writeRoleList(role: string, keys: string[]): Promise<string[]> {
   if (Object.keys(denials).length) await writeSetting(PERM_ROLES_KEY, JSON.stringify(denials))
   else await clearSetting(PERM_ROLES_KEY)
   return valid
-}
-
-async function writePerson(id: string, exceptions: PersonExceptions): Promise<void> {
-  if (Object.keys(exceptions).length) await writeSetting(permUserKey(id), JSON.stringify(exceptions))
-  else await clearSetting(permUserKey(id))
 }
 
 // ---------------------------------------------------------------------------
@@ -192,47 +166,7 @@ export const savePersonPermissions = createServerFn({ method: 'POST' })
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
     if (!row || !hasPanelRole(row.roles)) return { ok: false, error: 'Nie ma takiego konta.' }
-    if (isSuperAdmin(row.email, row.roles)) return { ok: false, error: 'Uprawnień właściciela nie da się ograniczyć.' }
-    const cleaned: PersonExceptions = {}
-    for (const [key, item] of Object.entries(data.exceptions)) {
-      if (!permissionByKey(key)) continue
-      // "Allow" only makes sense for something one of the person's roles has by default.
-      if (item.mode === 'allow' && !row.roles.some((role) => roleHasByDefault(role, key))) continue
-      let until: string | undefined
-      if (item.until) {
-        const time = Date.parse(item.until)
-        if (!Number.isFinite(time)) return { ok: false, error: 'Nieprawidłowa data końca wyjątku.' }
-        if (time <= Date.now()) return { ok: false, error: 'Data końca wyjątku musi być w przyszłości.' }
-        if (time > Date.now() + 366 * 86_400_000) return { ok: false, error: 'Wyjątek może trwać najwyżej rok.' }
-        until = new Date(time).toISOString()
-      }
-      cleaned[key] = { mode: item.mode, ...(until ? { until } : {}) }
-    }
-    const before = parseExceptions(await readSetting(permUserKey(row.id)))
-    if (JSON.stringify(before) === JSON.stringify(cleaned)) return { ok: true }
-    await writePerson(row.id, cleaned)
-    const describe = (list: PersonExceptions) =>
-      Object.entries(list)
-        .map(([k, v]) => `${permissionByKey(k)?.label ?? k}: ${v.mode === 'deny' ? 'zablokowane' : 'dozwolone'}${v.until ? ` do ${v.until.slice(0, 10)}` : ''}`)
-        .join(', ') || 'brak wyjątków'
-    const summary = `było: ${describe(before)}; jest: ${describe(cleaned)}`
-    await pushHistory({
-      by: context.identity,
-      scope: 'person',
-      targetId: row.id,
-      targetLabel: row.email,
-      summary,
-      before,
-      after: cleaned,
-    })
-    await logEvent({
-      actor: context.identity,
-      actorRole: ROLE_ADMIN,
-      action: 'permissions_change',
-      target: row.email,
-      details: summary,
-    })
-    return { ok: true }
+    return applyPersonExceptions(row, data.exceptions, context)
   })
 
 /** Owner: undoes one change from the history (restores the value from before it). */

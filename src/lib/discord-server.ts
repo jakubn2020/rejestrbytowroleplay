@@ -36,6 +36,15 @@ export async function readDiscordConfig(): Promise<DiscordConfig> {
   }
 }
 
+/** The severity the owner chose for an alert kind, or `fallback` (built-in) when none / when the setting cannot be read. */
+export async function effectiveSeverity(kind: string, fallback: AlertSeverity): Promise<AlertSeverity> {
+  try {
+    return (await readDiscordConfig()).kinds[kind]?.severity ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
 export async function writeDiscordConfig(config: DiscordConfig): Promise<void> {
   await writeSetting(DISCORD_SETTING_KEY, JSON.stringify(config))
 }
@@ -90,11 +99,16 @@ export async function sendDiscordAlert(alert: {
     const config = await readDiscordConfig()
     if (!config.enabled) return
     const rule = config.kinds[alert.kind]
+    // The role is pinged on every critical alert, also when that kind is switched off in the table below.
+    const roleId =
+      alert.severity === 'critical' && config.criticalRole.enabled && DISCORD_ID_PATTERN.test(config.criticalRole.roleId)
+        ? config.criticalRole.roleId
+        : null
     // Unknown kinds fall back to "send when high or critical" so a new alert is never silently lost.
     const send = rule ? rule.send : alert.severity === 'high' || alert.severity === 'critical'
-    if (!send) return
+    if (!send && !roleId) return
 
-    const pinged = (rule?.ping ?? [])
+    const pinged = (send ? (rule?.ping ?? []) : [])
       .map((id) => config.people.find((p) => p.id === id))
       .filter((p): p is NonNullable<typeof p> => Boolean(p && p.enabled && DISCORD_ID_PATTERN.test(p.discordId)))
     const userIds = [...new Set(pinged.map((p) => p.discordId))]
@@ -107,9 +121,10 @@ export async function sendDiscordAlert(alert: {
 
     await post(url, {
       username: 'Centralny Rejestr – alerty',
-      content: userIds.length > 0 ? userIds.map((id) => `<@${id}>`).join(' ') : undefined,
-      // Only the explicitly chosen people can be pinged; nothing in the alert text can mention anybody else.
-      allowed_mentions: { parse: [], users: userIds },
+      content:
+        [...(roleId ? [`<@&${roleId}>`] : []), ...userIds.map((id) => `<@${id}>`)].join(' ') || undefined,
+      // Only the explicitly chosen role and people can be pinged; nothing in the alert text can mention anybody else.
+      allowed_mentions: { parse: [], users: userIds, roles: roleId ? [roleId] : [] },
       embeds: [
         {
           title: `${ICONS[alert.severity]} Alert ${NAMES[alert.severity]}`,
