@@ -47,9 +47,18 @@ export type DiscordKindRule = {
   ping: string[]
 }
 
+/** A Discord role pinged on every critical alert (set by the owner in the security centre). */
+export type DiscordCriticalRole = {
+  enabled: boolean
+  /** Numeric Discord role id. Empty = not set yet. */
+  roleId: string
+}
+
 export type DiscordConfig = {
   /** Master switch for all Discord notifications. */
   enabled: boolean
+  /** Role pinged on critical alerts; such alerts are sent even when the per-alert switch is off. */
+  criticalRole: DiscordCriticalRole
   people: DiscordPerson[]
   kinds: Record<string, DiscordKindRule>
 }
@@ -72,7 +81,7 @@ export function defaultDiscordConfig(): DiscordConfig {
       ping: severity === 'high' || severity === 'critical' ? people.map((p) => p.id) : [],
     }
   }
-  return { enabled: true, people, kinds }
+  return { enabled: true, criticalRole: { enabled: false, roleId: '' }, people, kinds }
 }
 
 /** Fills gaps (new alert kinds added later) and drops references to people that no longer exist. */
@@ -85,5 +94,10 @@ export function normalizeDiscordConfig(raw: Partial<DiscordConfig> | null | unde
     const rule = raw?.kinds?.[kind] ?? base.kinds[kind]!
     kinds[kind] = { send: Boolean(rule.send), ping: rule.ping.filter((id) => ids.has(id)) }
   }
-  return { enabled: raw?.enabled ?? base.enabled, people, kinds }
+  const role = raw?.criticalRole
+  const criticalRole: DiscordCriticalRole = {
+    enabled: Boolean(role?.enabled),
+    roleId: typeof role?.roleId === 'string' ? role.roleId : '',
+  }
+  return { enabled: raw?.enabled ?? base.enabled, criticalRole, people, kinds }
 }

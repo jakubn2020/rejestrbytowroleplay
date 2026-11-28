@@ -128,6 +128,36 @@ export function DiscordAlertsSection() {
         Wysyłaj alerty bezpieczeństwa na Discorda
       </label>
 
+      <div className="space-y-2 rounded-md border border-red-200 bg-red-50/50 p-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={config.criticalRole.enabled}
+            onChange={(e) => update({ criticalRole: { ...config.criticalRole, enabled: e.target.checked } })}
+          />
+          Przy alercie krytycznym pinguj rolę na Discordzie
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            aria-label="ID roli Discorda"
+            className="h-8 w-60 font-mono text-xs"
+            inputMode="numeric"
+            maxLength={25}
+            placeholder="ID roli (cyfry)"
+            value={config.criticalRole.roleId}
+            onChange={(e) => update({ criticalRole: { ...config.criticalRole, roleId: e.target.value.replace(/\s/g, '') } })}
+          />
+          {config.criticalRole.enabled && !DISCORD_ID_PATTERN.test(config.criticalRole.roleId) && (
+            <span className="text-xs text-amber-700">podaj ID roli, inaczej nie zostanie oznaczona</span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Alerty krytyczne (np. atak siłowy i blokada adresu IP, logowania z dwóch krajów, masowe usuwanie, lockdown) są wysyłane
+          zawsze, także gdy wyłączysz je w tabeli niżej. ID roli: Ustawienia serwera → Role → prawy przycisk na roli →
+          „Kopiuj ID roli” (wymaga trybu dewelopera). Jeśli ping nie działa, sprawdź, czy rola ma włączone oznaczanie @wzmianką.
+        </p>
+      </div>
+
       <div className="space-y-2">
         <p className="text-sm font-medium">Osoby pingowane</p>
         <p className="text-xs text-muted-foreground">

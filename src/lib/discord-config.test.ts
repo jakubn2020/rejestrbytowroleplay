@@ -10,6 +10,14 @@ describe('discord config', () => {
     expect(config.kinds.new_ip).toEqual({ send: false, ping: [] })
   })
 
+  it('keeps the critical role switched off until the owner sets it up', () => {
+    expect(defaultDiscordConfig().criticalRole).toEqual({ enabled: false, roleId: '' })
+    expect(normalizeDiscordConfig({ criticalRole: { enabled: true, roleId: '123456789012345678' } }).criticalRole).toEqual({
+      enabled: true,
+      roleId: '123456789012345678',
+    })
+  })
+
   it('fills in new alert kinds and drops pings of removed people', () => {
     const config = normalizeDiscordConfig({
       enabled: false,
