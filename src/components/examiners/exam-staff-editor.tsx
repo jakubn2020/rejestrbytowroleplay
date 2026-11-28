@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
+import { ReasonTemplates } from '@/components/admin/reason-templates'
 import { randomPassword } from '@/components/examiners/moderator-view'
 import { PasswordStrengthMeter } from '@/components/password-strength-meter'
 import { Button } from '@/components/ui/button'
@@ -172,6 +173,7 @@ export function ExamStaffEditor({ account, onChanged }: { account: ExamStaffAcco
             <Input type="number" min={1} max={8760} value={hours} onChange={(e) => setHours(e.target.value)} className="h-8 w-24" />
           </label>
           <Input aria-label="Powód" placeholder="Powód (widoczny dla osoby)" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} className="h-8 w-64" />
+          <div className="w-full"><ReasonTemplates category="suspend" onPick={setReason} maxLength={300} /></div>
           <Button
             size="sm"
             disabled={busy || !(Number(hours) >= 1)}
