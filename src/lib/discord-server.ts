@@ -36,6 +36,15 @@ export async function readDiscordConfig(): Promise<DiscordConfig> {
   }
 }
 
+/** The severity the owner chose for an alert kind, or `fallback` (built-in) when none / when the setting cannot be read. */
+export async function effectiveSeverity(kind: string, fallback: AlertSeverity): Promise<AlertSeverity> {
+  try {
+    return (await readDiscordConfig()).kinds[kind]?.severity ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
 export async function writeDiscordConfig(config: DiscordConfig): Promise<void> {
   await writeSetting(DISCORD_SETTING_KEY, JSON.stringify(config))
 }
