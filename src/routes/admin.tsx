@@ -116,6 +116,7 @@ import {
   ExpiryRequestsPanel,
   MyExpiryRequestsPanel,
 } from '@/components/admin/expiry-requests-panel'
+import { ApprovalsPanel } from '@/components/admin/approvals-panel'
 import { StatsPanel } from '@/components/admin/stats-panel'
 import { SecurityCenterPanel } from '@/components/admin/security-center-panel'
 import { RequestForm } from '@/components/admin/request-form'
@@ -1006,6 +1007,9 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
       {isAdmin && showRequests && (
         <Closable onClose={() => setShowRequests(false)}>
           <RequestsPanel key={logVersion} onChanged={() => void refreshAll()} />
+          <div className="mt-6">
+            <ApprovalsPanel key={`appr-${logVersion}`} onChanged={() => void refreshAll()} />
+          </div>
           <div className="mt-6">
             <ExpiryRequestsPanel key={`exp-${logVersion}`} onChanged={() => void refreshAll()} />
           </div>

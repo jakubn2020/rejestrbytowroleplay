@@ -106,6 +106,7 @@ export const AUDIT_ACTION_LABELS = {
   revoke_account: 'Wylogowano konto ze wszystkich urządzeń',
   logout_everyone: 'Wylogowano wszystkich użytkowników',
   account_lock: 'Zmiana stanu konta (blokada, zamrożenie, hasło)',
+  approval: 'Zasada dwóch osób (wniosek, zgoda, wykonanie)',
   ip_rule: 'Zmiana listy adresów IP',
   security_settings: 'Zmiana ustawień bezpieczeństwa',
   lockdown: 'Tryb blokady (lockdown)',

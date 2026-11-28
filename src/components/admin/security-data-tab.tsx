@@ -5,6 +5,7 @@ import { BrandingSection } from '@/components/admin/branding-section'
 import { PermissionsSection } from '@/components/admin/permissions-section'
 import { ExaminerLimitsSection } from '@/components/admin/examiner-limits-section'
 import { DiscordAlertsSection } from '@/components/admin/discord-alerts-section'
+import { ApprovalPolicySection } from '@/components/admin/approval-policy-section'
 import { OwnerControlsSection } from '@/components/admin/owner-controls-section'
 import { ReasonTemplatesEditor } from '@/components/admin/reason-templates'
 import { Button } from '@/components/ui/button'
@@ -141,6 +142,7 @@ export function SecurityDataTab() {
 
   return (
     <div className="space-y-6">
+      <ApprovalPolicySection />
       <OwnerControlsSection />
       <DiscordAlertsSection />
       <ReasonTemplatesEditor />
