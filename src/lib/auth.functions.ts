@@ -10,6 +10,7 @@ import {
   endAuthSession,
   endOtherAuthSessions,
   getSessionUser,
+  isRootOwner,
   isSuperAdmin,
   startAuthSession,
 } from './session-server'
@@ -87,7 +88,8 @@ export const loginUser = createServerFn({ method: 'POST' })
       return { ok: false, reason: 'invalid' }
     }
 
-    const owner = isSuperAdmin(row.email, row.roles)
+    // Only the real owner skips the lock / IP checks (a co-owner has the powers, not the exemption).
+    const owner = isRootOwner(row.email, row.roles)
     if (!owner) {
       // Checked only after the password was right, so nobody can probe which accounts are blocked.
       const unusedDays = await readNumberSetting(SEC_KEYS.unusedDays, 60)
@@ -135,9 +137,10 @@ export const loginUser = createServerFn({ method: 'POST' })
         id: row.id,
         email: row.email,
         roles: row.roles,
-        isSuperAdmin: owner,
+        isSuperAdmin: isSuperAdmin(row.email, row.roles),
+        isRootOwner: owner,
         mustChangePassword: row.mustChangePassword,
-        denied: await deniedFor({ id: row.id, roles: row.roles, isSuperAdmin: owner }),
+        denied: await deniedFor({ id: row.id, roles: row.roles, isSuperAdmin: isSuperAdmin(row.email, row.roles) }),
       },
     }
   })

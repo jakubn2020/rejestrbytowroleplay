@@ -32,6 +32,7 @@ const KIND_LABELS: Record<string, string> = {
   new_device: 'Alert: nowe urządzenie',
   new_country: 'Alert: nowy kraj',
   two_countries: 'Alert: dwa kraje naraz',
+  superadmin_granted: 'Alert: nadano uprawnienia superadmina',
   odd_hours: 'Alert: nietypowa pora',
   tor_login: 'Alert: logowanie przez Tor',
   pesel_sequence: 'Alert: skanowanie PESEL',

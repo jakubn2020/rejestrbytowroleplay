@@ -7,6 +7,7 @@ import { ExaminerLimitsSection } from '@/components/admin/examiner-limits-sectio
 import { DiscordAlertsSection } from '@/components/admin/discord-alerts-section'
 import { ApprovalPolicySection } from '@/components/admin/approval-policy-section'
 import { OwnerControlsSection } from '@/components/admin/owner-controls-section'
+import { ReasonTemplatesEditor } from '@/components/admin/reason-templates'
 import { Button } from '@/components/ui/button'
 import { downloadText } from '@/lib/download'
 import { formatDateTime } from '@/lib/registry'
@@ -144,6 +145,7 @@ export function SecurityDataTab() {
       <ApprovalPolicySection />
       <OwnerControlsSection />
       <DiscordAlertsSection />
+      <ReasonTemplatesEditor />
       <ExaminerLimitsSection />
       <PermissionsSection />
       <BrandingSection />

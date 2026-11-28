@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { ReasonTemplates } from '@/components/admin/reason-templates'
 import { Input } from '@/components/ui/input'
 import { countryLabel, remaining } from '@/lib/download'
 import { formatDateTime } from '@/lib/registry'
@@ -21,6 +22,7 @@ import {
 export function SecurityNetworkTab() {
   const [rules, setRules] = useState<{ block: IpRuleRow[]; allow: IpRuleRow[]; whitelistEnabled: boolean } | null>(null)
   const [traffic, setTraffic] = useState<TrafficInfo | null>(null)
+  const [blockReason, setBlockReason] = useState('')
   const [countries, setCountries] = useState<CountryRow[]>([])
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -80,7 +82,10 @@ export function SecurityNetworkTab() {
     const form = event.currentTarget
     const fields = new FormData(form)
     const hours = Number(fields.get('hours') || 0)
-    void add('block', String(fields.get('rule')).trim(), String(fields.get('reason') || '') || undefined, hours > 0 ? hours : undefined).then(() => form.reset())
+    void add('block', String(fields.get('rule')).trim(), String(fields.get('reason') || '') || undefined, hours > 0 ? hours : undefined).then(() => {
+      form.reset()
+      setBlockReason('')
+    })
   }
 
   function submitAllow(event: FormEvent<HTMLFormElement>) {
@@ -151,10 +156,11 @@ export function SecurityNetworkTab() {
         <h3 className="text-sm font-semibold">Zablokowane adresy i zakresy ({rules.block.length})</h3>
         <form onSubmit={submitBlock} className="mt-2 grid gap-2 sm:grid-cols-[1.2fr_1.2fr_0.7fr_auto]">
           <Input name="rule" placeholder="Adres lub zakres, np. 203.0.113.0/24" required maxLength={60} />
-          <Input name="reason" placeholder="Powód (opcjonalnie)" maxLength={200} />
+          <Input name="reason" placeholder="Powód (opcjonalnie)" maxLength={200} value={blockReason} onChange={(e) => setBlockReason(e.target.value)} />
           <Input name="hours" type="number" min={0} max={8760} placeholder="Godzin (puste = na stałe)" />
           <Button type="submit" disabled={busy}>Zablokuj</Button>
         </form>
+        <div className="mt-2"><ReasonTemplates category="ipblock" onPick={setBlockReason} maxLength={200} /></div>
         {rules.block.length > 0 && (
           <ul className="mt-2 divide-y rounded-md border text-sm">
             {rules.block.map((rule) => (
