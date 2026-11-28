@@ -1,8 +1,9 @@
-import { isWeakPassword } from '@/lib/password-strength'
+import { PASSWORD_MIN_LENGTH, hasDigit, hasSpecial, isWeakPassword } from '@/lib/password-strength'
 
 const CHECKS: { label: string; ok: (password: string, email: string) => boolean }[] = [
-  { label: 'co najmniej 10 znaków', ok: (p) => p.length >= 10 },
-  { label: 'małe i wielkie litery albo cyfra', ok: (p) => [/[a-ząćęłńóśźż]/.test(p), /[A-ZĄĆĘŁŃÓŚŹŻ]/.test(p), /\d/.test(p), /[^A-Za-z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/.test(p)].filter(Boolean).length >= 2 },
+  { label: `co najmniej ${PASSWORD_MIN_LENGTH} znaków`, ok: (p) => p.length >= PASSWORD_MIN_LENGTH },
+  { label: 'co najmniej jedna cyfra', ok: (p) => hasDigit(p) },
+  { label: 'co najmniej jeden znak specjalny (np. ! ? # %)', ok: (p) => hasSpecial(p) },
   {
     label: 'bez popularnych słów i części adresu e-mail',
     ok: (p, e) => {

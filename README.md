@@ -23,7 +23,8 @@ Dostępne zawody: lekarz rezydent, lekarz, lekarz specjalista, ratownik medyczny
    - `pnpm wrangler secret put SUPERADMIN_EMAIL` — e-mail właściciela (konto, które dodaje administratorów),
    - `pnpm wrangler secret put SITE_URL` — adres strony, np. `https://twojadomena.pl` (do linków w e-mailach),
    - opcjonalnie `RESEND_API_KEY` i `EMAIL_FROM` — kody 2FA i powiadomienia e-mail (bez klucza kod nie jest wymagany).
-4. **Konto właściciela:** `DATABASE_URL="..." pnpm create-user wlasciciel@example.com "silne-haslo" admin` (ten sam e-mail co w `SUPERADMIN_EMAIL`).
+  - opcjonalnie `DISCORD_WEBHOOK_URL` — webhook kanału Discorda, na który trafiają alerty bezpieczeństwa (`pnpm wrangler secret put DISCORD_WEBHOOK_URL`). Kogo pingować i które alerty wysyłać, ustawia właściciel w panelu: Centrum bezpieczeństwa → „Dane i ustawienia” → „Powiadomienia na Discordzie” (pingowanie wymaga numerycznego ID użytkownika Discorda).
+4. **Konto właściciela:** `DATABASE_URL="..." pnpm create-user wlasciciel@example.com "Silne-haslo-2026!" admin` (ten sam e-mail co w `SUPERADMIN_EMAIL`).
 5. **Wdrożenie:** `pnpm deploy`. Domenę dodajesz w panelu Cloudflare: Workers & Pages → projekt → Settings → Domains & Routes → Add → Custom domain.
 6. **Konta z Netlify Identity:** hasła nie przenoszą się. Właściciel dodaje administratorów w panelu („Dodaj administratora”), a administratorzy dodają kierownictwo („Dodaj kierownictwo”). Każdy dostaje hasło początkowe i może je zmienić przyciskiem „Zmień hasło”.
 
@@ -132,3 +133,8 @@ Strona `/egzaminy` (przycisk „Egzaminy (beta)” w panelu właściciela). Wyk�
 - Sprawdzanie działa na serwerze (`needs('klucz')` po middleware roli), a panel dodatkowo chowa przyciski wyłączonych funkcji. Katalog uprawnień: `src/lib/permissions.ts`.
 - Dane trzymane są w tabeli `settings` (`perm_roles`, `perm_user_<id>`, `perm_history`, `ip_role_<rola>`), więc nie ma nowej migracji.
 - Przełączniki funkcji (Sterowanie stroną): zgłoszenia, wnioski, publiczna wyszukiwarka, weryfikacja QR, dołączanie do egzaminów.
+
+## Bezpieczeństwo logowania
+
+- Hasła: co najmniej 10 znaków, w tym cyfra i znak specjalny (egzekwowane na serwerze przy każdej zmianie, resecie i tworzeniu konta).
+- 20 nieudanych logowań z jednego adresu IP w ciągu 24 godzin to alert krytyczny: adres jest blokowany na całej stronie do ręcznego odblokowania przez właściciela (Centrum bezpieczeństwa → „Adresy IP i ruch”).

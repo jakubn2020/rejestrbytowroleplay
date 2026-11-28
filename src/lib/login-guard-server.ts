@@ -2,7 +2,7 @@
  * Brute-force protection around the panel login: a per-address lockout and alerts.
  * Server-only; used by the login function in auth.functions.ts.
  */
-import { autoBan } from './ip-policy-server'
+import { autoBan, lockIp } from './ip-policy-server'
 import {
   clientIp,
   countEvents,
@@ -13,6 +13,12 @@ import {
 const WINDOW_MINUTES = 15
 /** Failed logins from one address in the window after which that address is blocked. */
 const MAX_FAILURES_PER_IP = 8
+/**
+ * Failed logins from one address within `LOCK_WINDOW_MINUTES` that count as a brute-force attack:
+ * critical alert and the address is blocked on the whole site until the owner unblocks it by hand.
+ */
+export const LOCK_AFTER_FAILURES = 20
+const LOCK_WINDOW_MINUTES = 24 * 60
 /** Failures that raise an alert (without blocking, so nobody can lock out someone else). */
 const ALERT_AFTER = 5
 
@@ -32,6 +38,20 @@ export async function registerLoginFailure(rawEmail: string): Promise<void> {
   const ip = clientIp()
   await recordEvent({ kind: 'login_failed', identity: email, ip })
   if (ip) {
+    const lastDay = await countEvents({ kind: 'login_failed', ip, minutes: LOCK_WINDOW_MINUTES })
+    if (lastDay >= LOCK_AFTER_FAILURES) {
+      const reason = `${lastDay} nieudanych logowań w ciągu 24 godzin (atak siłowy)`
+      if (await lockIp(ip, reason)) {
+        await raiseAlert({
+          kind: 'ip_locked',
+          ip,
+          identity: email,
+          details: `KRYTYCZNE: adres ${ip} wykonał ${lastDay} nieudanych logowań w ciągu 24 godzin (ostatnie konto: ${email}). Strona jest dla niego zablokowana do ręcznego odblokowania (Centrum bezpieczeństwa → Adresy IP i ruch).`,
+          severity: 'critical',
+        })
+      }
+      return
+    }
     const fromIp = await countEvents({
       kind: 'login_failed',
       ip,

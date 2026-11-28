@@ -5,6 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { consumePasswordReset } from '@/lib/password-reset.functions'
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULES_ERROR,
+  PASSWORD_RULES_TEXT,
+  meetsPasswordPolicy,
+} from '@/lib/password-strength'
 
 export const Route = createFileRoute('/reset-hasla')({
   head: () => ({
@@ -26,6 +32,10 @@ function ResetPage() {
     event.preventDefault()
     const fields = new FormData(event.currentTarget)
     const password = String(fields.get('password'))
+    if (!meetsPasswordPolicy(password)) {
+      setError(PASSWORD_RULES_ERROR)
+      return
+    }
     if (password !== String(fields.get('confirm'))) {
       setError('Hasła nie są takie same.')
       return
@@ -37,7 +47,7 @@ function ResetPage() {
       if (result.ok) setDone(true)
       else setError(result.error)
     } catch {
-      setError('Nie udało się ustawić hasła. Sprawdź, czy hasło ma co najmniej 8 znaków.')
+      setError('Nie udało się ustawić hasła. Sprawdź, czy hasło spełnia wymagania (min. 10 znaków, cyfra i znak specjalny).')
     } finally {
       setPending(false)
     }
@@ -59,7 +69,8 @@ function ResetPage() {
         <form onSubmit={submit} className="mt-6 space-y-3 rounded-lg border bg-white p-5 shadow-sm">
           <div className="space-y-2">
             <Label htmlFor="reset-password">Nowe hasło</Label>
-            <Input id="reset-password" name="password" type="password" autoComplete="new-password" required />
+            <Input id="reset-password" name="password" type="password" autoComplete="new-password" minLength={PASSWORD_MIN_LENGTH} required />
+            <p className="text-xs text-muted-foreground">{PASSWORD_RULES_TEXT}</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="reset-confirm">Powtórz nowe hasło</Label>

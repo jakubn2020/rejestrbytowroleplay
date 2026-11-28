@@ -28,6 +28,7 @@ const KIND_LABELS: Record<string, string> = {
   qr_mass_check: 'Masowe sprawdzanie kodów QR',
   pwz_guessing: 'Zgadywanie numerów PWZ/PESEL',
   ip_autoban: 'Automatyczna blokada adresu IP',
+  ip_locked: 'Atak siłowy: adres zablokowany do ręcznego odblokowania',
   lockdown: 'Tryb blokady (lockdown)',
   test: 'Alarm próbny',
 }

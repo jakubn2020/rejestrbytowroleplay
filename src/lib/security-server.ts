@@ -23,6 +23,7 @@ import {
   type AuditAction,
 } from './registry'
 import { SEC_DEFAULTS, SEC_KEYS, readNumberSetting } from './site-settings-server'
+import { sendDiscordAlert } from './discord-server'
 
 export const MFA_COOKIE = 'rejestr_mfa'
 
@@ -271,6 +272,7 @@ const KIND_SEVERITY: Record<string, Severity> = {
   mass_status: 'high',
   pwz_guessing: 'high',
   two_countries: 'critical',
+  ip_locked: 'critical',
   mass_delete: 'critical',
   lockdown: 'critical',
 }
@@ -463,12 +465,28 @@ export async function raiseAlert(opts: {
     }
     const severity = opts.severity ?? severityOf(opts.kind)
     await recordEvent({ ...opts, isAlert: true, severity })
-    await notifyAdmins(
-      severity === 'critical'
-        ? '[KRYTYCZNY] Alert bezpieczeństwa – Centralny Rejestr'
-        : 'Alert bezpieczeństwa – Centralny Rejestr',
-      opts.details,
-    )
+    let country: string | null = null
+    try {
+      country = clientCountry()
+    } catch {
+      // outside a request
+    }
+    await Promise.allSettled([
+      notifyAdmins(
+        severity === 'critical'
+          ? '[KRYTYCZNY] Alert bezpieczeństwa – Centralny Rejestr'
+          : 'Alert bezpieczeństwa – Centralny Rejestr',
+        opts.details,
+      ),
+      sendDiscordAlert({
+        kind: opts.kind,
+        severity,
+        details: opts.details,
+        ip: opts.ip,
+        identity: opts.identity,
+        country,
+      }),
+    ])
   } catch (error) {
     console.error('Nie udało się zapisać alertu', error)
   }

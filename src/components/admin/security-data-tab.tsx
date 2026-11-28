@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { BrandingSection } from '@/components/admin/branding-section'
 import { PermissionsSection } from '@/components/admin/permissions-section'
 import { ExaminerLimitsSection } from '@/components/admin/examiner-limits-section'
+import { DiscordAlertsSection } from '@/components/admin/discord-alerts-section'
 import { OwnerControlsSection } from '@/components/admin/owner-controls-section'
 import { Button } from '@/components/ui/button'
 import { downloadText } from '@/lib/download'
@@ -140,6 +141,7 @@ export function SecurityDataTab() {
   return (
     <div className="space-y-6">
       <OwnerControlsSection />
+      <DiscordAlertsSection />
       <ExaminerLimitsSection />
       <PermissionsSection />
       <BrandingSection />

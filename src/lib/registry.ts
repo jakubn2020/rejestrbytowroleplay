@@ -112,6 +112,7 @@ export const AUDIT_ACTION_LABELS = {
   examiner_limits: 'Zmiana limitów egzaminatorów',
   examiner_appeal: 'Odwołanie od zawieszenia konta',
   permissions_change: 'Zmiana uprawnień lub adresów logowania',
+  discord_settings: 'Zmiana ustawień powiadomień na Discordzie',
 } as const
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS

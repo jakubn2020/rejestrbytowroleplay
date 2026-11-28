@@ -10,6 +10,7 @@
 import { neon } from '@neondatabase/serverless'
 
 import { hashPassword } from '../src/lib/password'
+import { PASSWORD_RULES_ERROR, meetsPasswordPolicy } from '../src/lib/password-strength'
 
 const [rawEmail, password, role = 'admin'] = process.argv.slice(2)
 const url = process.env.DATABASE_URL
@@ -18,8 +19,8 @@ if (!url || !rawEmail || !password || !['admin', 'kierownictwo'].includes(role))
   console.error('Użycie: DATABASE_URL=... pnpm create-user <email> <hasło> [admin|kierownictwo]')
   process.exit(1)
 }
-if (password.length < 8) {
-  console.error('Hasło musi mieć co najmniej 8 znaków.')
+if (!meetsPasswordPolicy(password)) {
+  console.error(PASSWORD_RULES_ERROR)
   process.exit(1)
 }
 
