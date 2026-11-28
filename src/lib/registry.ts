@@ -14,6 +14,19 @@ export const ROLE_MANAGEMENT = 'kierownictwo'
 /** `egzaminator` files requests for new entries (limited); `moderator-egzaminatorow` runs the examiner accounts. */
 export const ROLE_EXAMINER = 'egzaminator'
 export const ROLE_EXAM_MOD = 'moderator-egzaminatorow'
+/**
+ * Co-owner: an admin account that was given the owner's powers (managing admins, the security centre, permissions…)
+ * by the real owner (SUPERADMIN_EMAIL). Always together with `admin`; only the real owner can grant or take it away.
+ */
+export const ROLE_SUPERADMIN = 'superadmin'
+
+/** Roles that may be combined on one account (e.g. kierownictwo + moderator). `admin` never combines with them. */
+export const COMBINABLE_ROLES = [ROLE_MANAGEMENT, ROLE_EXAMINER, ROLE_EXAM_MOD] as const
+export const COMBINABLE_ROLE_LABELS: Record<(typeof COMBINABLE_ROLES)[number], string> = {
+  [ROLE_MANAGEMENT]: 'Kierownictwo',
+  [ROLE_EXAMINER]: 'Egzaminator',
+  [ROLE_EXAM_MOD]: 'Moderator egzaminatorów',
+}
 
 /** Does any of these roles give access to the staff panel? */
 export function hasPanelRole(roles: readonly string[]): boolean {
@@ -112,6 +125,8 @@ export const AUDIT_ACTION_LABELS = {
   examiner_limits: 'Zmiana limitów egzaminatorów',
   examiner_appeal: 'Odwołanie od zawieszenia konta',
   reason_templates: 'Zmiana szablonów powodów',
+  coowner_change: 'Nadanie lub odebranie uprawnień superadmina',
+  account_roles: 'Zmiana ról konta (łączenie ról)',
   examiner_edit: 'Edycja konta egzaminatora lub moderatora (rola, hasło, blokada)',
   permissions_change: 'Zmiana uprawnień lub adresów logowania',
   discord_settings: 'Zmiana ustawień powiadomień na Discordzie',

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ReasonTemplates } from '@/components/admin/reason-templates'
+import { AccountRolesEditor } from '@/components/admin/account-roles-editor'
 import { randomPassword } from '@/components/examiners/moderator-view'
 import { PasswordStrengthMeter } from '@/components/password-strength-meter'
 import { Button } from '@/components/ui/button'
@@ -144,6 +145,8 @@ export function ExamStaffEditor({ account, onChanged }: { account: ExamStaffAcco
           </Button>
         </div>
       </section>
+
+      <AccountRolesEditor account={account} onChanged={onChanged} />
 
       <section className="space-y-2">
         <h3 className="font-semibold">Nowe hasło</h3>

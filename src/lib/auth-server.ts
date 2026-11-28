@@ -3,7 +3,7 @@ import { createMiddleware } from '@tanstack/react-start'
 
 import { ROLE_ADMIN, ROLE_EXAMINER, ROLE_EXAM_MOD, ROLE_MANAGEMENT, hasPanelRole } from './registry'
 import { assertPermission } from './permissions-server'
-import { getSessionUser } from './session-server'
+import { getSessionUser, superAdminEmail } from './session-server'
 import { mfaSatisfied } from './security-server'
 
 const MFA_REQUIRED = 'Wymagane potwierdzenie kodem z e-maila'
@@ -44,6 +44,20 @@ export const requireSuperAdmin = createMiddleware({ type: 'function' }).server(
   async ({ next }) => {
     const user = await getSessionUser()
     if (!user?.isSuperAdmin) {
+      throw new Error('Brak uprawnień właściciela')
+    }
+    if (user.mustChangePassword) throw new Error(PASSWORD_CHANGE_REQUIRED)
+    const identity = user.email.toLowerCase()
+    if (!(await mfaSatisfied(identity))) throw new Error(MFA_REQUIRED)
+    return next({ context: { user, identity } })
+  },
+)
+
+/** The real owner only (SUPERADMIN_EMAIL): naming co-owners. A co-owner is refused. */
+export const requireRootOwner = createMiddleware({ type: 'function' }).server(
+  async ({ next }) => {
+    const user = await getSessionUser()
+    if (!user?.isSuperAdmin || user.email.toLowerCase() !== superAdminEmail()) {
       throw new Error('Brak uprawnień właściciela')
     }
     if (user.mustChangePassword) throw new Error(PASSWORD_CHANGE_REQUIRED)
