@@ -26,8 +26,8 @@ import {
   users,
   type Practitioner,
 } from '../../db/schema'
-import { requireAdmin, requireStaff, requireSuperAdmin, needs } from './auth-server'
-import { superAdminEmail } from './session-server'
+import { requireAdmin, requireRootOwner, requireStaff, requireSuperAdmin, needs } from './auth-server'
+import { isSuperAdmin, superAdminEmail } from './session-server'
 import { hashPassword } from './password'
 import { newPasswordSchema } from './password-schema'
 import { isWeakPassword } from './password-strength'
@@ -35,8 +35,10 @@ import { insertPractitioner, purgeTrashedClash } from './practitioners-server'
 import {
   ENTRY_STATUSES,
   ENTRY_STATUS_KEYS,
+  COMBINABLE_ROLES,
   ROLE_ADMIN,
   ROLE_MANAGEMENT,
+  ROLE_SUPERADMIN,
   TRASH_RETENTION_DAYS,
   entryNumber,
   effectiveStatus,
@@ -698,7 +700,15 @@ const emailSchema = z
   .email('Podaj poprawny adres e-mail')
   .max(200)
 
-export type AccountRow = { id: string; email: string; isOwner: boolean }
+export type AccountRow = {
+  id: string
+  email: string
+  isOwner: boolean
+  /** An admin who was given the owner's powers by the owner. */
+  isCoOwner: boolean
+  /** Other panel roles on the account (kierownictwo accounts may also be examiners or moderators). */
+  roles: string[]
+}
 
 /** Accounts that have exactly this role (`kierownictwo` rows never include admins). */
 async function listAccounts(role: string): Promise<AccountRow[]> {
@@ -717,7 +727,15 @@ async function listAccounts(role: string): Promise<AccountRow[]> {
       id: row.id,
       email: row.email,
       isOwner: owner !== '' && row.email === owner,
+      isCoOwner: row.roles.includes(ROLE_SUPERADMIN),
+      roles: row.roles,
     }))
+}
+
+/** Only the real owner may touch the owner's own account and the co-owners' accounts. */
+function protectedFromActor(target: { email: string; roles: string[] }, actor: { identity: string }): boolean {
+  const actorIsRoot = actor.identity.toLowerCase() === superAdminEmail()
+  return !actorIsRoot && (target.email.toLowerCase() === superAdminEmail() || target.roles.includes(ROLE_SUPERADMIN))
 }
 
 type AccountActor = { identity: string }
@@ -751,6 +769,9 @@ async function removeAccount(
     if (target.email === superAdminEmail()) {
       return { ok: false, error: 'Konta właściciela nie można usunąć.' }
     }
+    if (protectedFromActor(target, actor)) {
+      return { ok: false, error: 'Konto współwłaściciela może zmieniać tylko właściciel.' }
+    }
     await db.delete(mfaSessions).where(eq(mfaSessions.identity, target.email))
     await db.delete(users).where(eq(users.id, target.id)) // sessions go with it (cascade)
     await logEvent({
@@ -776,6 +797,9 @@ async function resetAccountPassword(
   try {
     const target = await findAccount(id, role)
     if (!target) return { ok: false, error: `To konto nie jest kontem ${label}.` }
+    if (protectedFromActor(target, actor)) {
+      return { ok: false, error: 'Hasło właściciela i współwłaścicieli może zmieniać tylko właściciel.' }
+    }
     await db
       .update(users)
       .set({
@@ -900,6 +924,80 @@ export const deleteAdmin = createServerFn({ method: 'POST' })
     async ({ data, context }): Promise<DeleteManagementResult> =>
       removeAccount(data.id, ROLE_ADMIN, context),
   )
+
+/**
+ * Real owner only: gives an admin account the owner's powers (co-owner) or takes them away again.
+ * The grant raises a critical alert. A co-owner cannot name further co-owners.
+ */
+export const setCoOwner = createServerFn({ method: 'POST' })
+  .middleware([requireRootOwner])
+  .validator(z.object({ id: idInput.shape.id, on: z.boolean() }))
+  .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
+    if (!row || !row.roles.includes(ROLE_ADMIN)) return { ok: false, error: 'To nie jest konto administratora.' }
+    if (row.email.toLowerCase() === superAdminEmail()) return { ok: false, error: 'To jest konto właściciela.' }
+    if (row.roles.includes(ROLE_SUPERADMIN) === data.on) return { ok: true }
+    const roles = data.on ? [...row.roles, ROLE_SUPERADMIN] : row.roles.filter((role) => role !== ROLE_SUPERADMIN)
+    await db.update(users).set({ roles }).where(eq(users.id, row.id))
+    if (!data.on) {
+      // Whoever acted as a co-owner is signed out so the powers end at once.
+      await db.delete(authSessions).where(eq(authSessions.userId, row.id))
+      await db.delete(mfaSessions).where(eq(mfaSessions.identity, row.email.toLowerCase()))
+    }
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'coowner_change',
+      target: row.email,
+      details: data.on ? 'Nadano uprawnienia superadmina (współwłaściciel)' : 'Odebrano uprawnienia superadmina',
+    })
+    if (data.on) {
+      await raiseAlert({
+        kind: 'superadmin_granted',
+        identity: row.email,
+        details: `Konto ${row.email} dostało uprawnienia superadmina od ${context.identity}.`,
+        severity: 'critical',
+      })
+    }
+    return { ok: true }
+  })
+
+/**
+ * Admin: sets which of kierownictwo / egzaminator / moderator egzaminatorów an account has, so one person can
+ * be e.g. kierownictwo and moderator at the same time. Admin accounts never combine with other roles.
+ */
+export const setAccountRoles = createServerFn({ method: 'POST' })
+  .middleware([requireAdmin, needs('accounts.management'), needs('examstaff.manage')])
+  .validator(
+    z.object({
+      id: idInput.shape.id,
+      roles: z.array(z.enum(COMBINABLE_ROLES)).min(1, 'Konto musi mieć co najmniej jedną rolę.').max(3),
+    }),
+  )
+  .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
+    if (!row) return { ok: false, error: 'Nie ma takiego konta.' }
+    if (row.roles.includes(ROLE_ADMIN) || isSuperAdmin(row.email, row.roles)) {
+      return { ok: false, error: 'Administratora nie można łączyć z rolami kierownictwa, egzaminatora ani moderatora.' }
+    }
+    if (!row.roles.some((role) => (COMBINABLE_ROLES as readonly string[]).includes(role))) {
+      return { ok: false, error: 'To nie jest konto kierownictwa, egzaminatora ani moderatora.' }
+    }
+    const roles = COMBINABLE_ROLES.filter((role) => data.roles.includes(role))
+    if (roles.length === row.roles.length && roles.every((role) => row.roles.includes(role))) return { ok: true }
+    await db.update(users).set({ roles: [...roles] }).where(eq(users.id, row.id))
+    // Signed out, so the new set of roles applies at the next sign-in.
+    await db.delete(authSessions).where(eq(authSessions.userId, row.id))
+    await db.delete(mfaSessions).where(eq(mfaSessions.identity, row.email.toLowerCase()))
+    await logEvent({
+      actor: context.identity,
+      actorRole: ROLE_ADMIN,
+      action: 'account_roles',
+      target: row.email,
+      details: `Role: ${row.roles.join(', ')} → ${roles.join(', ')}`,
+    })
+    return { ok: true }
+  })
 
 /** Owner only: sets a new password for an admin account. */
 export const setAdminPassword = createServerFn({ method: 'POST' })

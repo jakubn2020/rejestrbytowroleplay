@@ -226,6 +226,7 @@ export function ExamStaffAdmin({ onChanged }: { onChanged?: () => void }) {
                   <p className="font-medium">
                     {a.email}{' '}
                     <span className="rounded bg-muted px-2 py-0.5 text-xs">{a.role === 'moderator' ? 'moderator' : 'egzaminator'}</span>{' '}
+                    {a.roles.includes('kierownictwo') && <span className="rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">+ kierownictwo</span>}{' '}
                     {a.suspendedUntil && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">Zawieszony do {formatDateTime(a.suspendedUntil)}</span>}{' '}
                     {a.appeal && <span className="rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900">Odwołanie od zawieszenia</span>}{' '}
                     {a.locked && <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-900">Zablokowane</span>}{' '}

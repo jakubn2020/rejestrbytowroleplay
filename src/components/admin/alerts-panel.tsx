@@ -18,6 +18,7 @@ const KIND_LABELS: Record<string, string> = {
   new_device: 'Logowanie z nowego urządzenia',
   new_country: 'Logowanie z nowego kraju',
   two_countries: 'Logowania z dwóch krajów w krótkim czasie',
+  superadmin_granted: 'Nadano uprawnienia superadmina (współwłaściciel)',
   odd_hours: 'Logowanie o nietypowej porze',
   tor_login: 'Logowanie przez sieć Tor',
   pesel_sequence: 'Odsłanianie PESEL kolejnych wpisów (skanowanie)',

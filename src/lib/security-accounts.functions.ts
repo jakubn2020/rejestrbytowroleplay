@@ -7,8 +7,8 @@ import { db } from '../../db'
 import { authSessions, mfaSessions, passwordResets, securityEvents, users } from '../../db/schema'
 import { requireSuperAdmin } from './auth-server'
 import { hashPassword } from './password'
-import { ROLE_ADMIN } from './registry'
-import { AUTH_COOKIE, superAdminEmail } from './session-server'
+import { ROLE_ADMIN, ROLE_SUPERADMIN } from './registry'
+import { AUTH_COOKIE, getSessionUser, superAdminEmail } from './session-server'
 import {
   MFA_COOKIE,
   logEvent,
@@ -60,6 +60,13 @@ async function targetOf(email: string) {
   if (email === superAdminEmail()) throw new Error('Konta właściciela nie można zmieniać tym narzędziem.')
   const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1)
   if (!row) throw new Error('Nie znaleziono konta.')
+  // A co-owner's account can only be changed by the real owner.
+  if (row.roles.includes(ROLE_SUPERADMIN)) {
+    const me = await getSessionUser()
+    if (me?.email.toLowerCase() !== superAdminEmail()) {
+      throw new Error('Konto współwłaściciela może zmieniać tylko właściciel.')
+    }
+  }
   return row
 }
 

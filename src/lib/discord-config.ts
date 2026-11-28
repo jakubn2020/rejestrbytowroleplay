@@ -5,6 +5,7 @@ export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical'
 /** Every alert kind that can be sent to Discord, with its label and default severity. */
 export const DISCORD_ALERT_KINDS: { kind: string; label: string; severity: AlertSeverity }[] = [
   { kind: 'ip_locked', label: 'Atak siłowy: adres zablokowany do ręcznego odblokowania', severity: 'critical' },
+  { kind: 'superadmin_granted', label: 'Nadano uprawnienia superadmina (współwłaściciel)', severity: 'critical' },
   { kind: 'two_countries', label: 'Logowania z dwóch krajów w krótkim czasie', severity: 'critical' },
   { kind: 'mass_delete', label: 'Masowe usuwanie wpisów', severity: 'critical' },
   { kind: 'lockdown', label: 'Tryb blokady (lockdown)', severity: 'critical' },

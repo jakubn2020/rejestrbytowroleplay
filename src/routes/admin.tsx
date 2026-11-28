@@ -56,6 +56,8 @@ import {
   ROLE_ADMIN,
   ROLE_MANAGEMENT,
   isExamStaffOnly,
+  ROLE_EXAMINER,
+  ROLE_EXAM_MOD,
   TRASH_RETENTION_DAYS,
   formatDate,
   formatDateTime,
@@ -79,6 +81,7 @@ import {
   addPractitioner,
   bulkUpdateEntries,
   deleteAdmin,
+  setCoOwner,
   deleteManagement,
   deletePractitioner,
   entryHistory,
@@ -129,6 +132,7 @@ import { TodoPanel } from '@/components/admin/todo-panel'
 import { WhatsNewBar } from '@/components/admin/whats-new-bar'
 import { OnboardingDialog, onboardingSeen } from '@/components/admin/onboarding-dialog'
 import { ExamStaffAdmin } from '@/components/examiners/exam-staff-admin'
+import { AccountRolesEditor } from '@/components/admin/account-roles-editor'
 import { ExamStaffPanel } from '@/components/examiners/exam-staff-panel'
 import { getAdminCounts } from '@/lib/alerts.functions'
 import { getMyBadge } from '@/lib/activity.functions'
@@ -581,6 +585,8 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
 
   const isAdmin = user.roles?.includes(ROLE_ADMIN) ?? false
   const isManagement = user.roles?.includes(ROLE_MANAGEMENT) ?? false
+  // kierownictwo may also be an examiner or moderator of examiners: that work stays one click away.
+  const hasExamRole = !isAdmin && (user.roles?.includes(ROLE_EXAMINER) || user.roles?.includes(ROLE_EXAM_MOD)) === true
   /** False when the owner switched this permission off for this account (the buttons are hidden). */
   const can = (key: string) => !(user.denied ?? []).includes(key)
   const canAdd = isAdmin || isManagement
@@ -596,6 +602,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
   const [showLog, setShowLog] = useState(false)
   const [showManagement, setShowManagement] = useState(false)
   const [showExamStaff, setShowExamStaff] = useState(false)
+  const [showExamWork, setShowExamWork] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
   const [showRequests, setShowRequests] = useState(false)
   const [showReports, setShowReports] = useState(false)
@@ -845,6 +852,19 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
         onSignedOutEverywhere={onLogout}
       />
 
+      {hasExamRole && (
+        <div className="flex flex-wrap gap-2">
+          <Button variant={showExamWork ? 'default' : 'outline'} onClick={() => setShowExamWork((open) => !open)}>
+            <Users className="size-4" /> Panel {user.roles?.includes(ROLE_EXAM_MOD) ? 'moderatora egzaminatorów' : 'egzaminatora'}
+          </Button>
+        </div>
+      )}
+      {hasExamRole && showExamWork && (
+        <Closable onClose={() => setShowExamWork(false)}>
+          <ExamStaffPanel user={user} onLogout={onLogout} />
+        </Closable>
+      )}
+
       {isAdmin && (
         <div className="flex flex-wrap gap-2">
 {can('accounts.management') && (
@@ -968,6 +988,7 @@ function SignedIn({ user, onLogout }: { user: AuthUser; onLogout: () => void }) 
           <ManagementPanel
             key={`admins-${logVersion}`}
             kind="admin"
+            canGrantCoOwner={user.isRootOwner === true}
             onChanged={() => setLogVersion((version) => version + 1)}
           />
         </Closable>
@@ -1460,15 +1481,43 @@ type ManagementRow = Awaited<ReturnType<typeof listManagement>>[number]
 function ManagementPanel({
   onChanged,
   kind = 'management',
+  canGrantCoOwner = false,
 }: {
   onChanged: () => void
   kind?: 'management' | 'admin'
+  /** The real owner may give admins the owner's powers (co-owner). */
+  canGrantCoOwner?: boolean
 }) {
   const isAdminKind = kind === 'admin'
   const accountLabel = isAdminKind ? 'administratora' : 'kierownictwa'
   const [rows, setRows] = useState<ManagementRow[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [resetTarget, setResetTarget] = useState<ManagementRow | null>(null)
+  const [rolesFor, setRolesFor] = useState<string | null>(null)
+
+  async function toggleCoOwner(row: ManagementRow) {
+    const grant = !row.isCoOwner
+    if (
+      !confirm(
+        grant
+          ? `Nadać ${row.email} uprawnienia superadmina? Ta osoba dostanie prawie wszystkie uprawnienia właściciela (konta administratorów, Centrum bezpieczeństwa, uprawnienia). Nie będzie mogła zmieniać Twojego konta ani nadawać superadmina innym.`
+          : `Odebrać ${row.email} uprawnienia superadmina? Osoba zostanie wylogowana i zostanie zwykłym administratorem.`,
+      )
+    ) {
+      return
+    }
+    try {
+      const result = await setCoOwner({ data: { id: row.id, on: grant } })
+      if (!result.ok) {
+        toast.error(result.error)
+        return
+      }
+      toast.success(grant ? 'Nadano uprawnienia superadmina.' : 'Odebrano uprawnienia superadmina.')
+      onChanged()
+    } catch {
+      toast.error('Nie udało się zmienić uprawnień.')
+    }
+  }
 
   const load = useCallback(async () => {
     setFailed(false)
@@ -1542,7 +1591,7 @@ function ManagementPanel({
             <TableHeader>
               <TableRow>
                 <TableHead>E-mail</TableHead>
-                <TableHead className="w-24" />
+                <TableHead className="w-64" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1551,8 +1600,32 @@ function ManagementPanel({
                   <TableCell className="font-medium">
                     {row.email}
                     {row.isOwner ? ' (właściciel)' : ''}
+                    {row.isCoOwner ? ' (superadmin)' : ''}
+                    {!isAdminKind && row.roles.includes(ROLE_EXAMINER) ? ' · egzaminator' : ''}
+                    {!isAdminKind && row.roles.includes(ROLE_EXAM_MOD) ? ' · moderator' : ''}
+                    {rolesFor === row.id && (
+                      <div className="mt-2 font-normal">
+                        <AccountRolesEditor
+                          account={row}
+                          onChanged={() => {
+                            setRolesFor(null)
+                            onChanged()
+                          }}
+                        />
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
+                    {!isAdminKind && (
+                      <Button variant="ghost" size="sm" onClick={() => setRolesFor(rolesFor === row.id ? null : row.id)}>
+                        Role
+                      </Button>
+                    )}
+                    {isAdminKind && canGrantCoOwner && !row.isOwner && (
+                      <Button variant="ghost" size="sm" onClick={() => void toggleCoOwner(row)}>
+                        {row.isCoOwner ? 'Odbierz superadmina' : 'Nadaj superadmina'}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
