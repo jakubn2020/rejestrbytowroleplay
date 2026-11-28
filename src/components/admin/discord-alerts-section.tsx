@@ -14,6 +14,7 @@ import {
 import {
   getDiscordSettings,
   saveDiscordSettings,
+  saveDiscordWebhook,
   testDiscordWebhook,
   type DiscordSettings,
 } from '@/lib/discord.functions'
@@ -28,6 +29,7 @@ export function DiscordAlertsSection() {
   const [busy, setBusy] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [newId, setNewId] = useState('')
+  const [webhookInput, setWebhookInput] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -106,6 +108,22 @@ export function DiscordAlertsSection() {
     }
   }
 
+  async function saveWebhook(url: string) {
+    setBusy(true)
+    try {
+      const result = await saveDiscordWebhook({ data: { url } })
+      if (result.ok) {
+        toast.success(url ? 'Zapisano adres webhooka.' : 'Usunięto adres webhooka z panelu.')
+        setWebhookInput('')
+        await load()
+      } else toast.error(result.error)
+    } catch {
+      toast.error('Nie udało się zapisać adresu webhooka.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function test() {
     setBusy(true)
     try {
@@ -126,15 +144,39 @@ export function DiscordAlertsSection() {
         <span
           className={`rounded px-2 py-0.5 text-xs ring-1 ${settings.webhookConfigured ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : 'bg-red-50 text-red-800 ring-red-200'}`}
         >
-          {settings.webhookConfigured ? 'Webhook skonfigurowany' : 'Brak webhooka (DISCORD_WEBHOOK_URL)'}
+          {settings.webhookConfigured
+            ? `Webhook skonfigurowany (${settings.webhookSource === 'panel' ? 'z panelu' : 'ze zmiennej środowiskowej'}, ${settings.webhookHint})`
+            : 'Brak webhooka'}
         </span>
       </div>
-      {!settings.webhookConfigured && (
+      <div className="space-y-2 rounded-md border p-3">
+        <p className="text-sm font-medium">Adres webhooka</p>
         <p className="text-xs text-muted-foreground">
-          Utwórz webhook na kanale Discorda (Ustawienia kanału → Integracje → Webhooki) i wklej jego adres do zmiennej
-          środowiskowej <code>DISCORD_WEBHOOK_URL</code> w hostingu. Adres jest tajny, dlatego nie jest zapisywany w panelu.
+          Utwórz webhook na kanale Discorda (Ustawienia kanału → Integracje → Webhooki → Kopiuj adres URL webhooka) i wklej go
+          tutaj. Adres jest tajny: po zapisaniu nie jest nigdzie wyświetlany, a nowy zastępuje stary. Adres z panelu ma
+          pierwszeństwo przed zmienną środowiskową <code>DISCORD_WEBHOOK_URL</code>.
         </p>
-      )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            aria-label="Adres webhooka Discorda"
+            type="password"
+            autoComplete="off"
+            className="h-8 w-full max-w-md font-mono text-xs"
+            maxLength={500}
+            placeholder="https://discord.com/api/webhooks/…"
+            value={webhookInput}
+            onChange={(e) => setWebhookInput(e.target.value)}
+          />
+          <Button size="sm" disabled={busy || !webhookInput.trim()} onClick={() => void saveWebhook(webhookInput)}>
+            Zapisz adres
+          </Button>
+          {settings.webhookSource === 'panel' && (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void saveWebhook('')}>
+              Usuń adres z panelu
+            </Button>
+          )}
+        </div>
+      </div>
 
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={config.enabled} onChange={(e) => update({ enabled: e.target.checked })} />
