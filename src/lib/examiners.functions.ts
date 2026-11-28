@@ -334,6 +334,8 @@ export type ExamStaffAccount = {
   id: string
   email: string
   role: 'examiner' | 'moderator'
+  /** All roles of the account (an examiner or moderator may also be kierownictwo). */
+  roles: string[]
   createdAt: string
   createdBy: string | null
   lastLoginAt: string | null
@@ -356,9 +358,7 @@ async function examStaffRows(roles: string[]) {
   const rows = await db.select().from(users).orderBy(users.email)
   return rows.filter(
     (row) =>
-      roles.some((role) => row.roles.includes(role)) &&
-      !row.roles.includes(ROLE_ADMIN) &&
-      !row.roles.includes(ROLE_MANAGEMENT),
+      roles.some((role) => row.roles.includes(role)) && !row.roles.includes(ROLE_ADMIN),
   )
 }
 
@@ -412,6 +412,7 @@ async function toAccounts(rows: Awaited<ReturnType<typeof examStaffRows>>): Prom
       id: row.id,
       email: row.email,
       role: row.roles.includes(ROLE_EXAM_MOD) ? 'moderator' : 'examiner',
+      roles: row.roles,
       createdAt: row.createdAt.toISOString(),
       createdBy: row.createdBy,
       lastLoginAt: row.lastLoginAt ? row.lastLoginAt.toISOString() : null,
@@ -432,12 +433,11 @@ async function signOutEverywhere(user: { id: string; email: string }) {
   await db.delete(mfaSessions).where(eq(mfaSessions.identity, user.email.toLowerCase()))
 }
 
-/** An examiner or moderator account: never an admin, kierownictwo or the owner. */
+/** An examiner or moderator account (it may also be kierownictwo): never an admin or the owner. */
 function isExamStaffRow(row: { email: string; roles: string[] }): boolean {
   return (
     (row.roles.includes(ROLE_EXAMINER) || row.roles.includes(ROLE_EXAM_MOD)) &&
     !row.roles.includes(ROLE_ADMIN) &&
-    !row.roles.includes(ROLE_MANAGEMENT) &&
     !isSuperAdmin(row.email, row.roles)
   )
 }
@@ -564,7 +564,8 @@ export const modOverview = createServerFn({ method: 'GET' })
   .middleware([requireExamMod])
   .handler(async ({ context }): Promise<ModOverview> => {
     const limits = await readLimits()
-    const accounts = await toAccounts(await examStaffRows([ROLE_EXAMINER]))
+    // Moderators only see (and act on) pure examiner accounts; people who are also kierownictwo are for admins.
+    const accounts = await toAccounts((await examStaffRows([ROLE_EXAMINER])).filter((row) => !row.roles.includes(ROLE_MANAGEMENT)))
     const [added] = await db
       .select({ n: sql<string>`count(*)` })
       .from(users)
@@ -600,7 +601,7 @@ export const addExaminer = createServerFn({ method: 'POST' })
   .validator(z.object({ email: emailSchema, password: passwordSchema }))
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const limits = await readLimits()
-    const total = (await examStaffRows([ROLE_EXAMINER])).length
+    const total = (await examStaffRows([ROLE_EXAMINER])).filter((row) => !row.roles.includes(ROLE_MANAGEMENT)).length
     if (total >= limits.maxExaminers) {
       return { ok: false, error: `Osiągnięto limit ${limits.maxExaminers} kont egzaminatorów ustawiony przez właściciela.` }
     }
@@ -733,10 +734,23 @@ export const deleteExamStaff = createServerFn({ method: 'POST' })
   .validator(idSchema)
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; error: string }> => {
     const [row] = await db.select().from(users).where(eq(users.id, data.id)).limit(1)
-    if (!row || row.roles.includes(ROLE_ADMIN) || row.roles.includes(ROLE_MANAGEMENT) || !(row.roles.includes(ROLE_EXAMINER) || row.roles.includes(ROLE_EXAM_MOD))) {
+    if (!row || !isExamStaffRow(row)) {
       return { ok: false, error: 'To nie jest konto egzaminatora ani moderatora.' }
     }
     await signOutEverywhere(row)
+    if (row.roles.includes(ROLE_MANAGEMENT)) {
+      // The person is also kierownictwo: only the examiner / moderator roles go, the account stays.
+      const roles = row.roles.filter((role) => role !== ROLE_EXAMINER && role !== ROLE_EXAM_MOD)
+      await db.update(users).set({ roles }).where(eq(users.id, row.id))
+      await logEvent({
+        actor: context.identity,
+        actorRole: ROLE_ADMIN,
+        action: 'examiner_delete',
+        target: row.email,
+        details: 'Odebrano role egzaminatora/moderatora; konto kierownictwa zostało.',
+      })
+      return { ok: true }
+    }
     await db.delete(users).where(eq(users.id, row.id))
     await logEvent({ actor: context.identity, actorRole: ROLE_ADMIN, action: 'examiner_delete', target: row.email })
     return { ok: true }
@@ -849,15 +863,17 @@ export const setExamStaffRole = createServerFn({ method: 'POST' })
     const row = await examStaffTarget(data.id)
     if (!row) return { ok: false, error: NOT_EXAM_STAFF }
     const role = data.role === 'moderator' ? ROLE_EXAM_MOD : ROLE_EXAMINER
-    if (row.roles.length === 1 && row.roles[0] === role) return { ok: true }
-    await db.update(users).set({ roles: [role] }).where(eq(users.id, row.id))
+    // Only the examiner / moderator part changes; kierownictwo (if the person has it) stays.
+    const roles = [...row.roles.filter((r) => r !== ROLE_EXAMINER && r !== ROLE_EXAM_MOD), role]
+    if (roles.length === row.roles.length && roles.every((r) => row.roles.includes(r))) return { ok: true }
+    await db.update(users).set({ roles }).where(eq(users.id, row.id))
     await signOutEverywhere(row)
     await logEvent({
       actor: context.identity,
       actorRole: ROLE_ADMIN,
       action: 'examiner_edit',
       target: row.email,
-      details: `Zmiana roli: ${row.roles.join(', ')} → ${role}`,
+      details: `Zmiana roli: ${row.roles.join(', ')} → ${roles.join(', ')}`,
     })
     return { ok: true }
   })

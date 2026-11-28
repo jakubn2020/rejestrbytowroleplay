@@ -272,6 +272,7 @@ const KIND_SEVERITY: Record<string, Severity> = {
   mass_status: 'high',
   pwz_guessing: 'high',
   two_countries: 'critical',
+  superadmin_granted: 'critical',
   ip_locked: 'critical',
   mass_delete: 'critical',
   lockdown: 'critical',

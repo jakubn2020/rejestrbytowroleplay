@@ -7,7 +7,7 @@ import { db } from '../../db'
 import { authSessions, users } from '../../db/schema'
 import type { AuthUser } from './auth-types'
 import { ipBanned, panelIpAllowed } from './ip-policy-server'
-import { ROLE_ADMIN } from './registry'
+import { ROLE_ADMIN, ROLE_SUPERADMIN } from './registry'
 import { readCookie, sha256, clientIp } from './security-server'
 import { SEC_DEFAULTS, SEC_KEYS, readNumberSetting } from './site-settings-server'
 
@@ -19,9 +19,15 @@ export function superAdminEmail(): string {
   return (process.env.SUPERADMIN_EMAIL ?? '').trim().toLowerCase()
 }
 
-export function isSuperAdmin(email: string, roles: string[]): boolean {
+/** The real owner (SUPERADMIN_EMAIL): never locked out, never limited, the only one who can name co-owners. */
+export function isRootOwner(email: string, roles: readonly string[]): boolean {
   const owner = superAdminEmail()
   return owner !== '' && email.toLowerCase() === owner && roles.includes(ROLE_ADMIN)
+}
+
+/** Owner powers: the real owner or a co-owner (an admin the owner gave the `superadmin` role). */
+export function isSuperAdmin(email: string, roles: readonly string[]): boolean {
+  return isRootOwner(email, roles) || (roles.includes(ROLE_SUPERADMIN) && roles.includes(ROLE_ADMIN))
 }
 
 /** Starts a password-login session: stores the token hash and sets the HttpOnly cookie. */
@@ -100,7 +106,8 @@ export async function getSessionUser(): Promise<AuthUser | null> {
     )
     .limit(1)
   if (!row) return null
-  const owner = isSuperAdmin(row.email, row.roles)
+  // Only the real owner skips the lock / IP checks; a co-owner has the owner's powers but not that exemption.
+  const owner = isRootOwner(row.email, row.roles)
   if (!owner) {
     // Blocked, frozen, lockdown or a banned / not whitelisted address end the session at once.
     if (row.locked) return null
@@ -114,7 +121,8 @@ export async function getSessionUser(): Promise<AuthUser | null> {
     id: row.id,
     email: row.email,
     roles: row.roles,
-    isSuperAdmin: owner,
+    isSuperAdmin: isSuperAdmin(row.email, row.roles),
+    isRootOwner: owner,
     mustChangePassword: row.mustChangePassword,
   }
 }
